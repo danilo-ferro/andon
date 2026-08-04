@@ -295,11 +295,16 @@ function kpi(rot,val,obs,cor){
 }
 
 function aro(pcts, tam){
-  // pcts: [{v, cor}] empilhados sobre 100%
+  // pcts: [{v, cor}] empilhados sobre 100%.
+  // Cada fatia era limitada a 100% sozinha, mas a soma não: batida a meta,
+  // o segundo arco dava a volta e passava por cima do primeiro. O corte
+  // agora é no acumulado — o anel enche e para.
   const R=tam/2-11, C=2*Math.PI*R;
-  let off=0;
+  let off=0, acum=0;
   const arcos = pcts.map((p,i)=>{
-    const len = Math.min(p.v,100)/100*C;
+    const fatia = Math.max(Math.min(p.v, 100-acum), 0);
+    acum += fatia;
+    const len = fatia/100*C;
     const el = `<circle cx="${tam/2}" cy="${tam/2}" r="${R}" fill="none" stroke="${p.cor}"
       stroke-width="13" stroke-linecap="round" stroke-dasharray="${len} ${C}"
       stroke-dashoffset="${-off}" transform="rotate(-90 ${tam/2} ${tam/2})"

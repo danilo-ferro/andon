@@ -91,7 +91,7 @@ calculou fora daqui — e isso é bug de implementação, não de interpretaçã
 
 | Peça | Onde |
 |---|---|
-| Banco | Supabase · projeto `erp-canaverde-teste` (`btkkuzjjsiggqtopnzyd`, us-east-2) |
+| Banco | Supabase · projeto `andon` (`nkodijlsftdlzcmgjahk`, sa-east-1) |
 | Front | Vercel, servindo `public/` |
 | Carga | Edge Function `carregar`, disparada pelo GitHub Actions a cada push |
 

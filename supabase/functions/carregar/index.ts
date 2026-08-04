@@ -1,13 +1,15 @@
 // ANDON · carga de dados a partir do repositorio GitHub
 // Le os arquivos .psv publicados no repo e chama os loaders do banco.
-// Chame uma vez apos cada push que altere a pasta /dados.
+// Chamada uma vez a cada push que altere a pasta /dados (GitHub Actions).
 //
 //   GET /functions/v1/carregar
-//   GET /functions/v1/carregar?repo=<url-base-alternativa>
+//   GET /functions/v1/carregar?ref=<branch-ou-tag>
+//
+// O repositorio de origem e fixo: nao ha como apontar a carga para outra
+// fonte. Uma chamada indevida so refaz a sincronizacao com o proprio repo,
+// que e a fonte da verdade — nao ha como injetar dado de fora.
 //
 // O repositorio precisa ser PUBLICO para o raw.githubusercontent responder.
-// Ja esta implantada no projeto Supabase. Este arquivo existe para
-// versionamento e para reimplantar com `supabase functions deploy carregar`.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -23,17 +25,18 @@ const FONTES = [
 
 const LOTE = 250;
 
-async function baixa(base: string | null, arquivo: string) {
-  const bases = base
-    ? [base]
-    : RAMOS.map((r) => `https://raw.githubusercontent.com/${DONO}/${NOME}/${r}/dados`);
+// So aceita nome de ramo/tag: letras, numeros, . _ - e /. Nada de host proprio.
+const refValida = (r: string) => /^[\w.\-\/]{1,120}$/.test(r) && !r.includes('..');
+
+async function baixa(ref: string | null, arquivo: string) {
+  const refs = ref ? [ref] : RAMOS;
   let ultimo = '';
-  for (const b of bases) {
-    const url = `${b}/${arquivo}`;
+  for (const r of refs) {
+    const url = `https://raw.githubusercontent.com/${DONO}/${NOME}/${r}/dados/${arquivo}`;
     try {
-      const r = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
-      if (r.ok) return { texto: await r.text(), url };
-      ultimo = `${r.status} em ${url}`;
+      const resp = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
+      if (resp.ok) return { texto: await resp.text(), url };
+      ultimo = `${resp.status} em ${url}`;
     } catch (e) {
       ultimo = `${String(e)} em ${url}`;
     }
@@ -49,7 +52,14 @@ Deno.serve(async (req: Request) => {
   };
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
-  const base = new URL(req.url).searchParams.get('repo');
+  const ref = new URL(req.url).searchParams.get('ref');
+  if (ref && !refValida(ref)) {
+    return new Response(
+      JSON.stringify({ ok: false, erro: 'ref invalida' }),
+      { status: 400, headers: cors },
+    );
+  }
+
   const db = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -59,7 +69,7 @@ Deno.serve(async (req: Request) => {
 
   for (const f of FONTES) {
     try {
-      const { texto, url } = await baixa(base, f.arquivo);
+      const { texto, url } = await baixa(ref, f.arquivo);
       const linhas = texto.replace(/\r/g, '').trim().split('\n').filter((l) => l.trim().length > 0);
       if (linhas.length === 0) {
         relatorio.push({ tabela: f.tabela, ok: false, erro: 'arquivo vazio', origem: url });

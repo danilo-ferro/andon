@@ -7,11 +7,16 @@
 -- hora de sair do projeto de teste para o definitivo.
 --
 -- Ordem: rode este arquivo UMA vez num projeto limpo. A carga de dados
--- vem depois — pela Edge Function `carregar` (recomendado, veja
--- docs/COMO-COLOCAR-NO-AR.md) ou pelos arquivos supabase/carga_*.sql.
+-- vem depois, pela Edge Function `carregar` — veja docs/COMO-FUNCIONA.md.
 -- =====================================================================
 
 -- Limpeza do esquema anterior, caso exista
+drop view if exists vw_conciliacao_par, vw_conciliacao_processo, vw_conciliacao, vw_painel, vw_kanban_execucao,
+  vw_kanban_acordo, vw_decididos, vw_previsao, vw_receita_mes, vw_receita, vw_plantado,
+  advbox_resumo, advbox_mes cascade;
+
+drop table if exists advbox_lancamento cascade;
+
 drop table if exists teste_resultado, template_mensagem, perfil_usuario,
   acordo_parcela, acordo_status_historico, acordo_interacao, acordo,
   execucao_status_historico, execucao_item, andamento, processo,
@@ -127,21 +132,33 @@ create table acordo_trabalhista (
 );
 
 -- =====================================================================
--- 5. ADVBOX — receita já lançada no sistema financeiro atual
+-- 5. ADVBOX — receita já lançada no sistema financeiro atual.
+--    Uma linha por lançamento, nunca o total já somado: número agregado
+--    guardado é número que diverge da origem sem ninguém perceber.
+--    advbox_resumo e advbox_mes existem, mas como views (seção 9).
 -- =====================================================================
-create table advbox_resumo (
-  categoria text primary key,
-  valor     numeric(14,2) not null default 0,
-  ano       integer not null default 2026
+create table advbox_lancamento (
+  id            bigserial primary key,
+  conta         text,
+  centro_custo  text,
+  setor         text,
+  tipo          text,              -- RECEITA / DESPESA
+  vencimento    date,
+  competencia   text,              -- AAAA-MM
+  pagamento     date,              -- marco de caixa: é por ele que se concilia
+  categoria     text not null,     -- Mle, Acordo Pós Ativo, ...
+  descricao     text,
+  valor         numeric(14,2) not null default 0,
+  processo      text,
+  partes        text,
+  created_at    timestamptz not null default now()
 );
-create table advbox_mes (
-  id        bigserial primary key,
-  categoria text not null,
-  mes       text not null,       -- AAAA-MM
-  qtd       integer not null default 0,
-  valor     numeric(14,2) not null default 0,
-  unique (categoria, mes)
-);
+create index on advbox_lancamento (categoria);
+create index on advbox_lancamento (pagamento);
+create index on advbox_lancamento (processo);
+
+comment on table advbox_lancamento is
+  'Extrato do ADVBox, uma linha por lancamento. Fonte unica do lado ADVBox da conciliacao.';
 
 -- =====================================================================
 -- 6. CONFIGURAÇÃO — fases, grupos e metas editáveis pela tela Ajustes
@@ -241,7 +258,10 @@ insert into config_parametro (chave, valor, rotulo) values
   ('pct_cliente',        65,'Percentual do cliente no repasse'),
   ('pre_alvo_honorario', 33.33,'Pre-sentenca: alvo de honorarios'),
   ('pos_min_honorario',  20,'Pos-sentenca: minimo de honorarios'),
-  ('piso_oab_2026',    null,'Piso da tabela OAB de 2026 — pendente de cadastro');
+  ('piso_oab_2026',    null,'Piso da tabela OAB de 2026 — pendente de cadastro'),
+  -- O extrato do ADVBox exporta só receitas; a dedução vem do resumo e por
+  -- isso vive aqui, editável, em vez de ser derivada do detalhe.
+  ('advbox_deducoes', 214105.18,'ADVBox — deducoes do ano, para a receita liquida');
 
 -- =====================================================================
 -- 8. CARGA — parser que recebe um blob delimitado por | e quebra em linhas.
@@ -282,6 +302,17 @@ begin
                                protocolado,data_protocolo,estado,previsao,recebido,data_recebimento,observacoes)
   select nz(p[1]),nz(p[2]),nz(p[3]),nz(p[4]),nz(p[5]),nz(p[6]),p[7],nzd(p[8]),coalesce(nz(p[9])::numeric,0),
          nz(p[10]),nzd(p[11]),nz(p[12]),nzd(p[13]),nz(p[14]),nzd(p[15]),nz(p[16])
+  from (select string_to_array(l,'|') p from unnest(string_to_array(blob, E'\n')) l where btrim(l)<>'') s;
+  get diagnostics v = row_count; return v;
+end $$ language plpgsql;
+
+create or replace function carrega_advbox(blob text) returns integer as $$
+declare v integer;
+begin
+  insert into advbox_lancamento (conta,centro_custo,setor,tipo,vencimento,competencia,
+                                 pagamento,categoria,descricao,valor,processo,partes)
+  select nz(p[1]),nz(p[2]),nz(p[3]),nz(p[4]),nzd(p[5]),nz(p[6]),
+         nzd(p[7]),p[8],nz(p[9]),coalesce(nz(p[10])::numeric,0),nz(p[11]),nz(p[12])
   from (select string_to_array(l,'|') p from unnest(string_to_array(blob, E'\n')) l where btrim(l)<>'') s;
   get diagnostics v = row_count; return v;
 end $$ language plpgsql;
@@ -351,20 +382,96 @@ left join execucao e on e.status = cf.id
 where cf.esteira='execucao'
 group by cf.id, cf.nome, cf.cor, cf.grupo_id, cf.ordem order by cf.ordem;
 
+-- ADVBox agregado — derivado do lançamento, nunca digitado.
+-- Mantém os mesmos rótulos que a tela já consumia.
+create or replace view advbox_resumo as
+with l as (
+  select categoria, valor, extract(year from pagamento)::int ano
+  from advbox_lancamento where pagamento is not null
+),
+ded as (select coalesce(valor,0) v from config_parametro where chave='advbox_deducoes')
+select categoria, round(sum(valor),2)::numeric(14,2) valor, ano from l group by categoria, ano
+union all
+select 'RECEITA BRUTA', round(sum(valor),2)::numeric(14,2), ano from l group by ano
+union all
+select '0. DEDUÇÕES', (select v from ded)::numeric(14,2), ano from l group by ano
+union all
+select 'RECEITA LIQUIDA', (round(sum(valor),2)-(select v from ded))::numeric(14,2), ano
+from l group by ano;
+
+create or replace view advbox_mes as
+select categoria, to_char(pagamento,'YYYY-MM') mes, count(*)::int qtd,
+       round(sum(valor),2)::numeric(14,2) valor
+from advbox_lancamento where pagamento is not null
+group by categoria, to_char(pagamento,'YYYY-MM');
+
 -- Conciliação: a mesma receita contada por dois caminhos.
+-- Os dois lados olham os MESMOS anos — o do extrato do ADVBox. Comparar o
+-- histórico inteiro da equipe contra um ano do ADVBox inventa divergência.
 create or replace view vw_conciliacao as
-with eq as (
-  select 'MLE' o, coalesce(sum(valor),0) v from vw_receita where origem='MLE'
-  union all select 'Acordos', coalesce(sum(valor),0) from vw_receita where origem='Acordo'
-  union all select 'Trabalhista', coalesce(sum(valor),0) from vw_receita where origem='Trabalhista'
+with anos as (select distinct extract(year from pagamento)::int a
+                from advbox_lancamento where pagamento is not null),
+eq as (
+  select 'MLE'::text o, coalesce(sum(valor),0) v from vw_receita
+   where origem='MLE' and extract(year from data)::int in (select a from anos)
+  union all select 'Acordos', coalesce(sum(valor),0) from vw_receita
+   where origem='Acordo' and extract(year from data)::int in (select a from anos)
+  union all select 'Trabalhista', coalesce(sum(valor),0) from vw_receita
+   where origem='Trabalhista' and extract(year from data)::int in (select a from anos)
 ),
 ab as (
-  select 'MLE' o, coalesce(sum(valor),0) v from advbox_resumo where categoria='Mle'
-  union all select 'Acordos', coalesce(sum(valor),0) from advbox_resumo where categoria like 'Acordo P%'
-  union all select 'Trabalhista', coalesce(sum(valor),0) from advbox_resumo where categoria='Acordo Trabalhista'
+  select 'MLE'::text o, coalesce(sum(valor),0) v from advbox_lancamento where categoria='Mle'
+  union all select 'Acordos', coalesce(sum(valor),0) from advbox_lancamento where categoria like 'Acordo P%'
+  union all select 'Trabalhista', coalesce(sum(valor),0) from advbox_lancamento where categoria='Acordo Trabalhista'
 )
 select eq.o as origem, eq.v as controle_equipe, ab.v as advbox, ab.v - eq.v as diferenca
 from eq join ab on ab.o = eq.o;
+
+-- O detalhe do ADVBox traz número de processo. Com ele a conciliação sai de
+-- "faltam R$ 156 mil" para "faltam nestes processos" — que é acionável.
+create or replace view vw_conciliacao_processo as
+with anos as (select distinct extract(year from pagamento)::int a
+                from advbox_lancamento where pagamento is not null),
+eq as (
+  select processo, sum(valor) v, count(*)::int q from vw_receita
+   where processo is not null and extract(year from data)::int in (select a from anos)
+   group by processo
+),
+ab as (
+  select processo, sum(valor) v, count(*)::int q from advbox_lancamento
+   where processo is not null group by processo
+)
+select coalesce(eq.processo, ab.processo) as processo,
+       coalesce(eq.v,0)::numeric(14,2) as controle,
+       coalesce(eq.q,0) as qtd_controle,
+       coalesce(ab.v,0)::numeric(14,2) as advbox,
+       coalesce(ab.q,0) as qtd_advbox,
+       (coalesce(ab.v,0)-coalesce(eq.v,0))::numeric(14,2) as diferenca,
+       case when eq.processo is null then 'so_advbox'
+            when ab.processo is null then 'so_controle'
+            else 'valor_diferente' end as situacao
+from eq full join ab on ab.processo = eq.processo
+where abs(coalesce(ab.v,0)-coalesce(eq.v,0)) >= 0.01;
+
+comment on view vw_conciliacao_processo is
+  'Processo a processo: onde ADVBox e controle da equipe discordam.';
+
+-- Mesmo valor, lados opostos, processos diferentes: quase sempre o mesmo
+-- dinheiro digitado sob dois números — erro de digitação, ou o número do
+-- cumprimento de sentença de um lado e o do processo de origem do outro.
+-- Só pareia valor que aparece uma única vez de cada lado, para não inventar
+-- correspondência onde há ambiguidade.
+create or replace view vw_conciliacao_par as
+with a as (select processo, advbox v from vw_conciliacao_processo where situacao='so_advbox'),
+     b as (select processo, controle v from vw_conciliacao_processo where situacao='so_controle'),
+     uv as (select v from a group by v having count(*)=1
+            intersect
+            select v from b group by v having count(*)=1)
+select a.processo as processo_advbox, b.processo as processo_controle, a.v as valor
+from a join b on b.v = a.v join uv on uv.v = a.v;
+
+comment on view vw_conciliacao_par is
+  'Pares de mesmo valor em lados opostos: indicio de processo digitado errado ou renumerado.';
 
 -- Painel do gestor, em uma linha
 create or replace view vw_painel as
@@ -388,8 +495,7 @@ alter table execucao            enable row level security;
 alter table tratativa           enable row level security;
 alter table acordo_faturado     enable row level security;
 alter table acordo_trabalhista  enable row level security;
-alter table advbox_resumo       enable row level security;
-alter table advbox_mes          enable row level security;
+alter table advbox_lancamento   enable row level security;
 alter table config_grupo        enable row level security;
 alter table config_fase         enable row level security;
 alter table config_meta         enable row level security;
@@ -428,6 +534,10 @@ alter view vw_decididos        set (security_invoker = on);
 alter view vw_kanban_acordo    set (security_invoker = on);
 alter view vw_kanban_execucao  set (security_invoker = on);
 alter view vw_conciliacao      set (security_invoker = on);
+alter view vw_conciliacao_processo set (security_invoker = on);
+alter view vw_conciliacao_par  set (security_invoker = on);
+alter view advbox_resumo       set (security_invoker = on);
+alter view advbox_mes          set (security_invoker = on);
 alter view vw_painel           set (security_invoker = on);
 
 -- search_path fixo nas funções, para que ninguém consiga sequestrá-las
@@ -437,4 +547,5 @@ alter function nzd(text)                set search_path = public, pg_temp;
 alter function carrega_execucao(text)   set search_path = public, pg_temp;
 alter function carrega_tratativa(text)  set search_path = public, pg_temp;
 alter function carrega_faturado(text)   set search_path = public, pg_temp;
+alter function carrega_advbox(text)     set search_path = public, pg_temp;
 alter function toca_updated_at()        set search_path = public, pg_temp;

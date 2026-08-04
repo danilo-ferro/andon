@@ -33,9 +33,47 @@ Uma linha por registro, campos separados por `|`, sem cabeçalho, datas em
 | `execucao.psv` | controle, produto, advogado, cliente, processo, valor, foro, vara, status, data_expedição, último_andamento, data_último_andamento, observações, data_recebimento |
 | `tratativa.psv` | fase, estado, advogado, processo, autor, réu, escritório_adverso, canal, data, status, observações |
 | `faturado.psv` | origem, fase, advogado, produto, autor, réu, processo, data_minuta, valor, protocolado, data_protocolo, estado, previsão, recebido, data_recebimento, observações |
+| `advbox.psv` | conta, centro_custo, setor, tipo, vencimento, competência, pagamento, categoria, descrição, valor, processo, partes |
 
 O status precisa bater exatamente com um `id` da tabela `config_fase`.
 Se não bater, a linha entra mas fica fora do kanban.
+
+No `advbox.psv`, a `categoria` precisa bater com os nomes do resumo do
+ADVBox — `Mle`, `Acordo Pré Ativo`, `Acordo Pós Passivo`, `Acordo
+Trabalhista` e assim por diante. A conciliação agrupa por esses nomes: um
+`MLE` em caixa alta, ou com o prefixo `1.` que vem da exportação, sai do
+grupo e vira divergência falsa.
+
+## Por que o ADVBox entra pelo detalhe
+
+Antes o sistema guardava só o total por categoria. Total guardado à mão é
+número que diverge da origem sem ninguém perceber — que é justamente o
+problema que o ANDON existe para resolver.
+
+Hoje entra uma linha por lançamento, e `advbox_resumo` e `advbox_mes` são
+views calculadas em cima delas. De quebra, o detalhe traz o número do
+processo: é o que permite `vw_conciliacao_processo` dizer *em quais
+processos* os dois lados discordam, em vez de só *quanto*.
+
+A dedução do ano é a única coisa que não vem no extrato — ele exporta
+apenas receitas. Ela vive em `config_parametro`, chave `advbox_deducoes`.
+
+## As views que a tela consome
+
+Métrica se calcula uma vez, no banco. A tela lê e mostra.
+
+| View | Serve a |
+|---|---|
+| `vw_painel` | recebido e plantado do painel |
+| `vw_receita_mes` | gráfico de caixa mês a mês, por origem |
+| `vw_previsao` | previsão ponderada do Financeiro |
+| `vw_conciliacao` | as três linhas de divergência |
+| `vw_conciliacao_processo` | divergência processo a processo |
+| `vw_conciliacao_par` | mesmo valor sob dois números de processo |
+
+O que **não** vem de view é o que depende de meta editável na tela de
+Ajustes — takt, percentuais, ritmo. Ali a tela simula, e simulação não é
+fato: por isso pode viver no navegador.
 
 ## Se o esquema do banco mudar
 

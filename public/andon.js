@@ -9,9 +9,16 @@ const SB = {
   key: 'sb_publishable_s6EH8fDfeVrBVJVz9i_E9A_QYcgkf88'
 };
 
-const HOJE = new Date('2026-07-31T12:00:00');
-const ANO  = 2026;
-const MES  = 7;
+/* A data é a de hoje, sempre. Já esteve fixa em 31/07/2026, o que fazia o
+   painel envelhecer em silêncio: dias parados, takt e ritmo mensal congelavam
+   e ninguém percebia porque os números continuavam plausíveis. */
+const HOJE = (()=>{ const d=new Date(); d.setHours(12,0,0,0); return d; })();
+const ANO  = HOJE.getFullYear();
+const MES  = HOJE.getMonth()+1;
+const MM   = String(MES).padStart(2,'0');
+const ISO_HOJE = `${ANO}-${MM}-${String(HOJE.getDate()).padStart(2,'0')}`;
+const MESES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho',
+                    'agosto','setembro','outubro','novembro','dezembro'];
 
 const brl  = v => (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
 const brl2 = v => (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:2});
@@ -26,6 +33,9 @@ const soma = (l,f) => l.reduce((s,x)=>s+(f(x)||0),0);
 
 /* ---------- estado, preenchido pelo Supabase ---------- */
 let EXEC=[], TRAT=[], FAT=[], TRAB=[], ADVBOX={}, ADVMES=[];
+/* Views do banco. A regra do projeto é que métrica se calcula uma vez, no
+   banco. Onde existe view, a tela lê a view e não refaz a conta. */
+let VPAINEL=null, VPREVISAO=[], VCONC=[], VCONCPROC=[], VCONCPAR=[], VRECMES=[];
 
 async function sb(tabela, params){
   const qs = new URLSearchParams({select:'*', ...(params||{})}).toString();
@@ -51,12 +61,23 @@ async function sbTudo(tabela, ordem){
 }
 
 async function carrega(){
-  const [ex,tr,fa,tb,ar,am,gr,fs,mt,pr] = await Promise.all([
+  const [ex,tr,fa,tb,ar,am,gr,fs,mt,pr,vp,vpr,vc,vcp,vpar,vrm] = await Promise.all([
     sbTudo('execucao'), sbTudo('tratativa'), sbTudo('acordo_faturado'),
-    sbTudo('acordo_trabalhista'), sb('advbox_resumo'), sb('advbox_mes'),
+    sbTudo('acordo_trabalhista'),
+    sb('advbox_resumo',{ano:'eq.'+ANO}), sb('advbox_mes'),
     sb('config_grupo',{order:'ordem.asc'}), sb('config_fase',{order:'ordem.asc'}),
-    sb('config_meta'), sb('config_parametro')
+    sb('config_meta'), sb('config_parametro'),
+    sb('vw_painel'), sb('vw_previsao'), sb('vw_conciliacao'),
+    sb('vw_conciliacao_processo',{order:'diferenca.desc'}), sb('vw_conciliacao_par'),
+    sb('vw_receita_mes')
   ]);
+
+  VPAINEL   = vp[0] || null;
+  VPREVISAO = vpr;
+  VCONC     = vc;
+  VCONCPROC = vcp;
+  VCONCPAR  = vpar;
+  VRECMES   = vrm.map(r=>({origem:r.origem, mes:r.mes, qtd:+r.qtd, valor:+r.valor}));
 
   EXEC = ex.map(r=>({id:'E'+r.id, ctrl:r.n_controle, prod:r.produto, adv:r.advogado,
     cliente:r.cliente, proc:r.processo, valor:+r.valor, foro:r.foro, vara:r.vara,
@@ -121,16 +142,19 @@ const CFG = {
     {id:'ganho',   nome:'Ganho',              cor:'#A3E635', desc:'Acordo fechado, vai para faturamento'},
     {id:'perdido', nome:'Perdido',            cor:'#FB7185', desc:'Desfecho negativo'}
   ],
+  // denom: entra no denominador da taxa de sucesso. Só desfecho entra —
+  // um caso aguardando audiência está vivo, contá-lo como perda mente para
+  // baixo. Estes valores são o espelho de config_fase no banco, que manda.
   fasesA: [
-    {id:'AGUARDANDO RETORNO',  nome:'Aguardando retorno',  grupo:'contato', cor:'#6366F1'},
-    {id:'EM TRATATIVA',        nome:'Em tratativa',        grupo:'contato', cor:'#A855F7'},
-    {id:'AGUARD. CONTESTAÇÃO', nome:'Aguard. contestação', grupo:'travado', cor:'#F59E0B'},
-    {id:'AGUARDANDO RECURSO',  nome:'Aguardando recurso',  grupo:'travado', cor:'#EAB308'},
-    {id:'MLE',                 nome:'MLE',                 grupo:'travado', cor:'#D97706'},
-    {id:'ACORDO FECHADO',      nome:'Acordo fechado',      grupo:'ganho',   cor:'#A3E635'},
-    {id:'RECUSADO',            nome:'Recusado',            grupo:'perdido', cor:'#FB7185'},
-    {id:'SEM RETORNO',         nome:'Sem retorno',         grupo:'perdido', cor:'#F43F5E'},
-    {id:'IMPROCEDENTE',        nome:'Improcedente',        grupo:'perdido', cor:'#BE123C'}
+    {id:'AGUARDANDO RETORNO',  nome:'Aguardando retorno',  grupo:'contato', cor:'#6366F1', denom:false},
+    {id:'EM TRATATIVA',        nome:'Em tratativa',        grupo:'contato', cor:'#A855F7', denom:false},
+    {id:'AGUARD. CONTESTAÇÃO', nome:'Aguard. contestação', grupo:'travado', cor:'#F59E0B', denom:false},
+    {id:'AGUARDANDO RECURSO',  nome:'Aguardando recurso',  grupo:'travado', cor:'#EAB308', denom:false},
+    {id:'MLE',                 nome:'MLE',                 grupo:'travado', cor:'#D97706', denom:false},
+    {id:'ACORDO FECHADO',      nome:'Acordo fechado',      grupo:'ganho',   cor:'#A3E635', denom:true},
+    {id:'RECUSADO',            nome:'Recusado',            grupo:'perdido', cor:'#FB7185', denom:true},
+    {id:'SEM RETORNO',         nome:'Sem retorno',         grupo:'perdido', cor:'#F43F5E', denom:true},
+    {id:'IMPROCEDENTE',        nome:'Improcedente',        grupo:'perdido', cor:'#BE123C', denom:true}
   ],
 
   // Esteira de EXECUÇÃO — status reais do mapa
@@ -166,14 +190,26 @@ const recTRAB = () => TRAB.filter(t=>t.rec==='SIM' && t.drec && t.drec.slice(0,4
 const PLANTADO_ST = ['CS','CS-P','MLE SEM DESPACHO','EXPEDIDO','COM DESPACHO'];
 const plantados = () => EXEC.filter(e=>PLANTADO_ST.includes(e.st));
 
+/* Receita por origem, no ano corrente, lida de vw_receita_mes. */
+function recPorOrigem(o){
+  return soma(VRECMES.filter(r=>r.origem===o && r.mes.slice(0,4)===String(ANO)), r=>r.valor);
+}
+
 const M = {};
 function calcula(){
-  M.recMLE   = soma(recMLE(), e=>e.valor);
-  M.recACORDO= soma(recACORDO(), f=>f.valor);
-  M.recTRAB  = soma(recTRAB(), t=>t.valor);
+  // Os fatos vêm do banco. A tela não recalcula receita nem plantado: se
+  // divergirem da view, o número da reunião e o do relatório divergem.
+  // O fallback em JavaScript só existe para a view não ter respondido.
+  const daView = VPAINEL && VRECMES.length;
+  M.recMLE   = daView ? recPorOrigem('MLE')         : soma(recMLE(), e=>e.valor);
+  M.recACORDO= daView ? recPorOrigem('Acordo')      : soma(recACORDO(), f=>f.valor);
+  M.recTRAB  = daView ? recPorOrigem('Trabalhista') : soma(recTRAB(), t=>t.valor);
   M.recebido = M.recMLE + M.recACORDO + M.recTRAB;
-  M.plantado = soma(plantados(), e=>e.valor);
+  M.plantado = VPAINEL ? +VPAINEL.plantado : soma(plantados(), e=>e.valor);
   M.alcancado= M.recebido + M.plantado;
+
+  // Daqui para baixo depende das metas, que são editáveis em Ajustes —
+  // por isso continua na tela: é simulação, não fato.
   M.pctCaixa = pct(M.recebido, CFG.meta_caixa);
   M.pctObj   = pct(M.alcancado, CFG.meta_objetivo);
   M.mesesRest= 12 - MES + 1;
@@ -181,15 +217,21 @@ function calcula(){
   M.ritmo    = M.recebido / MES;
   M.mleAcordo= soma(execPorSt('MLE - ACORDO'), e=>e.valor);
 
-  // previsão ponderada
-  M.previsao = CFG.fasesE.filter(f=>f.conf).map(f=>{
-    const l = execPorSt(f.id), bruto = soma(l,e=>e.valor);
-    return {...f, qtd:l.length, bruto, pond: bruto*f.conf/100};
-  });
+  // previsão ponderada — vem de vw_previsao, que já aplica a confiança
+  M.previsao = VPREVISAO.length
+    ? VPREVISAO.map(p=>({id:p.etapa, nome:p.nome, cor:p.cor, conf:p.confianca,
+        prazo:p.prazo_dias, qtd:+p.qtd, bruto:+p.bruto, pond:+p.ponderado}))
+    : CFG.fasesE.filter(f=>f.conf).map(f=>{
+        const l = execPorSt(f.id), bruto = soma(l,e=>e.valor);
+        return {...f, qtd:l.length, bruto, pond: bruto*f.conf/100};
+      });
   M.previsaoTotal = soma(M.previsao, p=>p.pond);
 
-  // tratativas decididas → taxa de sucesso
-  const DEC = CFG.fasesA.filter(f=>f.denom!==false && ['ganho','perdido'].includes(f.grupo)).map(f=>f.id);
+  // tratativas decididas → taxa de sucesso.
+  // Quem decide é config_fase.conta_no_denominador, no banco. Antes a tela
+  // cruzava isso com uma lista de grupos escrita aqui: duas regras para a
+  // mesma decisão, prontas para divergir na primeira fase nova.
+  const DEC = CFG.fasesA.filter(f=>f.denom).map(f=>f.id);
   M.decididos = TRAT.filter(t=>DEC.includes(t.st));
   M.fechados  = tratPorSt('ACORDO FECHADO');
   M.taxa      = pct(M.fechados.length, M.decididos.length);
@@ -205,27 +247,27 @@ function calcula(){
   M.semProt   = FAT.filter(f=>f.prot!=='SIM');
   M.aReceber  = FAT.filter(f=>f.prot==='SIM' && f.rec!=='SIM');
   M.aReceberV = soma(M.aReceber, f=>f.valor);
-  M.atrasados = M.aReceber.filter(f=>f.prev && f.prev < HOJE.toISOString().slice(0,10));
+  M.atrasados = M.aReceber.filter(f=>f.prev && f.prev < ISO_HOJE);
 
-  M.mesAcordos = FAT.filter(f=>f.dprot && f.dprot.slice(0,7)===`${ANO}-0${MES}`);
+  // Era `${ANO}-0${MES}`: de outubro em diante virava "2026-010" e o mês
+  // aparecia zerado. Não dava para ver com a data fixa em julho.
+  M.mesAcordos = FAT.filter(f=>f.dprot && f.dprot.slice(0,7)===`${ANO}-${MM}`);
   M.mesAcordosV= soma(M.mesAcordos, f=>f.valor);
+
+  // Até quando a base foi alimentada. Se o último recebimento é antigo,
+  // o painel inteiro está descrevendo um escritório que já mudou.
+  const datas = [...EXEC.map(e=>e.drec), ...FAT.map(f=>f.drec)].filter(Boolean).sort();
+  M.ultimoDado = datas.length ? datas[datas.length-1] : null;
+  M.diasSemDado = M.ultimoDado ? dias(M.ultimoDado) : null;
 }
 calcula();
-
-/* recorte por mês */
-function porMes(lista, campoData, campoValor){
-  const a = new Array(12).fill(0), q = new Array(12).fill(0);
-  lista.forEach(x=>{ const d=x[campoData]; if(d && d.slice(0,4)==String(ANO)){
-    const m=+d.slice(5,7)-1; a[m]+=x[campoValor]||0; q[m]++; }});
-  return {v:a,q};
-}
 
 /* agrupador genérico para as tabelas de recorte */
 function recorte(lista, chave, valor){
   const m = new Map();
   lista.forEach(x=>{
     const k = chave(x) || '—';
-    const o = m.get(k) || {k, qtd:0, val:0, ganhos:0, dec:0};
+    const o = m.get(k) || {k, qtd:0, val:0};
     o.qtd++; o.val += valor(x)||0;
     m.set(k,o);
   });
@@ -302,10 +344,18 @@ function fluxo(fases, contar, valorDe, titulo, legenda, filtroAtual, onFiltro){
 /* ==================================================================
    TELA — PAINEL (visão do gestor)
    ================================================================== */
+/* Doze meses do ano corrente para uma origem, lidos de vw_receita_mes. */
+function mesesDe(origem){
+  const a = new Array(12).fill(0);
+  VRECMES.filter(r=>r.origem===origem && r.mes.slice(0,4)===String(ANO))
+         .forEach(r=>{ a[+r.mes.slice(5,7)-1] += r.valor; });
+  return a;
+}
+
 function telaPainel(){
-  const cm = porMes(recMLE(),'drec','valor');
-  const ca = porMes(recACORDO(),'drec','valor');
-  const ct = porMes(recTRAB(),'drec','valor');
+  const cm = {v: mesesDe('MLE')};
+  const ca = {v: mesesDe('Acordo')};
+  const ct = {v: mesesDe('Trabalhista')};
   const totMes = cm.v.map((x,i)=>x+ca.v[i]+ct.v[i]);
   const metaMes = CFG.meta_caixa/12;
   const maxb = Math.max(...totMes, metaMes)*1.16;
@@ -344,7 +394,13 @@ function telaPainel(){
      s:'não dá para medir a inércia', nivel:M.semAndam.length>100?'at':'ok',
      ir:()=>vai('execucao')},
     {n:M.vivos.filter(t=>dias(t.data)>CFG.alerta_parado).length, t:'Tratativa sem contato há mais de '+CFG.alerta_parado+' dias',
-     s:'cada dia parado derruba a chance', nivel:'at', ir:()=>vai('acordos')}
+     s:'cada dia parado derruba a chance', nivel:'at', ir:()=>vai('acordos')},
+    // A corda mais importante do andon: se a base parou de ser alimentada,
+    // todo o resto desta tela está descrevendo um escritório que já mudou.
+    {n:M.diasSemDado===null?'—':M.diasSemDado, t:'Dias desde o último recebimento registrado',
+     s:M.ultimoDado?'base alimentada até '+dtb(M.ultimoDado):'nenhuma data na base',
+     nivel:M.diasSemDado===null||M.diasSemDado>45?'pr':(M.diasSemDado>20?'at':'ok'),
+     ir:()=>vai('ajustes')}
   ];
 
   document.getElementById('t-painel').innerHTML = `
@@ -483,7 +539,7 @@ function descobertas(){
   if(!cards.length) return '';
   return `<div class="cx" style="margin-bottom:14px">
     <h3>O que os dados dizem</h3>
-    <p class="sub">Lido das ${TRAT.length} tratativas de ${ANO}. Não é opinião — é o que a sua própria base mostra.</p>
+    <p class="sub">Lido das ${TRAT.length} tratativas da base. Não é opinião — é o que os seus próprios dados mostram.</p>
     <div class="grade g3" style="margin:0">
       ${cards.map(c=>`<div style="border-left:2px solid ${c.c};padding-left:14px">
         <div class="mono" style="font-size:24px;font-weight:700;color:${c.c};letter-spacing:-.04em">${c.n}</div>
@@ -516,14 +572,14 @@ function fichaTrat(t){
   const d = dias(t.data);
   const alerta = d>CFG.alerta_parado && fA(t.st).grupo==='contato';
   return `<article class="ficha" data-abrir="T" data-id="${t.id}" style="--c:${fA(t.st).cor}">
-    <div class="fl1"><span class="proc">${t.proc}</span>
+    <div class="fl1"><span class="proc">${esc(t.proc)}</span>
       ${d!==null?`<span class="tarja ${alerta?'r':(d>20?'a':'v')}">${d}d</span>`:''}</div>
     <div class="partes">${esc(cap(t.autor).split(' ').slice(0,2).join(' '))}<i>×</i>${esc(t.reu)}</div>
     <div class="selos">
-      <span class="selo">${t.fase}</span>
-      <span class="selo">${t.uf}</span>
-      <span class="selo">${cap(t.adv)}</span>
-      ${t.canal?`<span class="selo">${cap(t.canal)}</span>`:''}
+      <span class="selo">${esc(t.fase)}</span>
+      <span class="selo">${esc(t.uf)}</span>
+      <span class="selo">${esc(cap(t.adv))}</span>
+      ${t.canal?`<span class="selo">${esc(cap(t.canal))}</span>`:''}
       ${t.escr?`<span class="selo w">${esc(t.escr)}</span>`:''}
     </div>
   </article>`;
@@ -564,7 +620,7 @@ function telaAcordos(){
   }).join('');
 
   document.getElementById('t-acordos').innerHTML = `
-    <div class="cab"><div class="olho">Esteira · ${TRAT.length} tratativas em ${ANO}</div>
+    <div class="cab"><div class="olho">Esteira · ${TRAT.length} tratativas na base</div>
       <h1>Acordos</h1>
       <p>As colunas não arrastam. O card anda quando o fato é registrado. A barra fina embaixo do título é o limite de trabalho em curso: quando estoura, a fila está engasgando.</p></div>
 
@@ -572,7 +628,7 @@ function telaAcordos(){
       ${kpi('Taxa de sucesso', M.taxa.toFixed(1)+'%', `${M.fechados.length} fechados em ${M.decididos.length} decididos`,'rgba(163,230,53,.26)')}
       ${kpi('Vivos na esteira', M.vivos.length, 'ainda podem virar acordo','rgba(99,102,241,.26)')}
       ${kpi('Ticket médio', brl(M.ticket), 'sobre os acordos faturados','rgba(168,85,247,.26)')}
-      ${kpi('Fechado em julho', brl(M.mesAcordosV), `${M.mesAcordos.length} acordos · meta ${brl(CFG.meta_acordos_mes)}`,
+      ${kpi('Fechado em '+MESES_NOME[MES-1], brl(M.mesAcordosV), `${M.mesAcordos.length} acordos · meta ${brl(CFG.meta_acordos_mes)}`,
         M.mesAcordosV>=CFG.meta_acordos_mes?'rgba(163,230,53,.3)':'rgba(245,158,11,.26)')}
     </div>
 
@@ -607,16 +663,16 @@ function fichaExec(e){
   const at = d!==null && d>CFG.alerta_parado;
   const rem = /remanescente/i.test(e.obs), inc = /incontroverso/i.test(e.obs);
   return `<article class="ficha" data-abrir="E" data-id="${e.id}" style="--c:${fE(e.st).cor}">
-    <div class="fl1"><span class="proc">${e.proc}</span>
+    <div class="fl1"><span class="proc">${esc(e.proc)}</span>
       ${d!==null?`<span class="tarja ${crit?'r':(at?'a':'v')}">${d}d</span>`:''}</div>
     <div class="partes">${esc(cap(e.cliente).split(' ').slice(0,3).join(' '))}</div>
     <div class="cif">${brl2(e.valor)}</div>
     <div class="selos">
       ${e.prod?`<span class="selo">${esc(e.prod)}</span>`:''}
-      ${e.adv?`<span class="selo">${cap(e.adv)}</span>`:''}
+      ${e.adv?`<span class="selo">${esc(cap(e.adv))}</span>`:''}
       ${inc?'<span class="selo g">incontroverso</span>':''}
       ${rem?'<span class="selo w">remanescente</span>':''}
-      ${e.ult?`<span class="selo">${cap(e.ult)}</span>`:''}
+      ${e.ult?`<span class="selo">${esc(cap(e.ult))}</span>`:''}
     </div>
   </article>`;
 }
@@ -711,6 +767,8 @@ function telaFinanceiro(){
   const cats = Object.entries(ADVBOX)
     .filter(([k])=>!['RECEITA BRUTA','0. DEDUÇÕES','RECEITA LIQUIDA'].includes(k))
     .sort((a,b)=>b[1]-a[1]);
+  // Sem extrato do ADVBox, cats fica vazio e cats[0][1] derrubava a tela toda.
+  const maxCat = cats.length ? cats[0][1] : 0;
   const bruta = ADVBOX['RECEITA BRUTA']||0;
   const ded = ADVBOX['0. DEDUÇÕES']||0;
   const liq = ADVBOX['RECEITA LIQUIDA']||0;
@@ -739,8 +797,9 @@ function telaFinanceiro(){
         <h3>Composição da receita</h3>
         <p class="sub">Categorias do ADVBox no ano. É a foto do que realmente entrou.</p>
         <table class="tb">
+          ${cats.length?'':'<tr><td colspan="2"><span class="p">Nenhum lançamento do ADVBox carregado.</span></td></tr>'}
           ${cats.map(([k,v])=>`<tr><td>${esc(k)}
-            <div class="trilho"><i style="width:${pct(v,cats[0][1])}%;
+            <div class="trilho"><i style="width:${pct(v,maxCat)}%;
               background:linear-gradient(90deg,#06B6D4,#A3E635)"></i></div></td>
             <td class="n">${brl(v)}<div class="p">${pct(v,bruta).toFixed(1)}%</div></td></tr>`).join('')}
           <tr class="tot"><td>Receita bruta</td><td class="n">${brl(bruta)}</td></tr>
@@ -768,7 +827,7 @@ function telaFinanceiro(){
         ${aReceber.slice(0,18).map(f=>{
           const venc = f.prev && f.prev < HOJE.toISOString().slice(0,10);
           return `<tr>
-            <td class="mono" style="font-size:11px">${f.proc}</td>
+            <td class="mono" style="font-size:11px">${esc(f.proc)}</td>
             <td>${esc(cap(f.autor).split(' ').slice(0,2).join(' '))}</td>
             <td>${esc(cap(f.reu))}</td>
             <td class="mono" style="font-size:11px">${dtb(f.dprot)}</td>
@@ -807,31 +866,67 @@ function telaFinanceiro(){
         </div>
       </div>
     </div>`;
+
+  ligaBusca();
 }
 
+/* A conciliação inteira vem de views. A tela só escolhe o que mostrar.
+   Antes ela refazia as somas aqui, e refazia errado: comparava o histórico
+   inteiro do faturamento contra um único ano do ADVBox. */
 function conciliacao(){
-  const advAcordo = (ADVBOX['Acordo Pós Ativo']||0)+(ADVBOX['Acordo Pós Passivo']||0)
-                  + (ADVBOX['Acordo Pré Ativo']||0)+(ADVBOX['Acordo Pré Passivo']||0);
-  const advMle = ADVBOX['Mle']||0;
-  const advTrab = ADVBOX['Acordo Trabalhista']||0;
-  const relAcordo = soma(FAT.filter(f=>f.rec==='SIM'), f=>f.valor);
-  const mapMle = M.recMLE;
-  const relTrab = soma(TRAB.filter(t=>t.rec==='SIM'), t=>t.valor);
+  if(!VCONC.length){
+    return `<div class="cx" style="margin-bottom:14px"><h3>Conciliação entre as fontes</h3>
+      <p class="sub" style="margin:0">Nenhum extrato do ADVBox carregado — não há o que conciliar.</p></div>`;
+  }
 
-  const linhas = [
-    {o:'MLE', a:'Mapa de execução', va:mapMle, b:'ADVBox · Mle', vb:advMle},
-    {o:'Acordos', a:'Relatório de faturamento', va:relAcordo, b:'ADVBox · 4 categorias de acordo', vb:advAcordo},
-    {o:'Trabalhista', a:'Aba Trabalhista', va:relTrab, b:'ADVBox · Acordo Trabalhista', vb:advTrab}
-  ].map(l=>({...l, dif:l.vb-l.va}));
+  const rotulo = {
+    'MLE':        {a:'Mapa de execução',        b:'ADVBox · Mle'},
+    'Acordos':    {a:'Relatório de faturamento', b:'ADVBox · 4 categorias de acordo'},
+    'Trabalhista':{a:'Aba Trabalhista',          b:'ADVBox · Acordo Trabalhista'}
+  };
+  const linhas = VCONC.map(l=>({o:l.origem, va:+l.controle_equipe, vb:+l.advbox, dif:+l.diferenca}))
+                      .sort((x,y)=>Math.abs(y.dif)-Math.abs(x.dif));
   const difTotal = soma(linhas, l=>Math.abs(l.dif));
+
+  /* Decomposição: quanto da diferença já tem explicação conhecida. */
+  const trab = linhas.find(l=>l.o==='Trabalhista');
+  const semBaseTrab = (trab && !TRAB.length) ? Math.abs(trab.dif) : 0;
+
+  const procMleAcordo = new Set(EXEC.filter(e=>e.st==='MLE - ACORDO').map(e=>e.proc));
+  const porMleAcordo = VCONCPROC.filter(c=>c.situacao==='so_advbox' && procMleAcordo.has(c.processo));
+  const vMleAcordo = soma(porMleAcordo, c=>+c.diferenca);
+
+  const resto = Math.max(difTotal - semBaseTrab - vMleAcordo, 0);
+
+  const soAdv = VCONCPROC.filter(c=>c.situacao==='so_advbox').length;
+  const soCtrl= VCONCPROC.filter(c=>c.situacao==='so_controle').length;
+
+  const explic = [
+    semBaseTrab && {v:semBaseTrab, t:'Acordos trabalhistas',
+      d:'O ADVBox lança, e o sistema não tem base de trabalhista nenhuma — a tabela está vazia. '
+       +'Não é divergência de número: é uma fonte que nunca foi carregada.'},
+    vMleAcordo && {v:vMleAcordo, t:`MLE · Acordo — ${porMleAcordo.length} processos`,
+      d:'Levantamentos que nasceram de acordo já faturado. A trava anti-duplicidade tira esse valor da '
+       +'receita de MLE de propósito; o ADVBox lançou como Mle. Os dois estão certos pela sua própria régua.'},
+    resto>0.01 && {v:resto, t:'Ainda sem explicação',
+      d:`Sobra depois de descontar o que já se sabe. É aqui que vale procurar: ${soAdv} processos aparecem `
+       +`só no ADVBox e ${soCtrl} só no controle da equipe.`}
+  ].filter(Boolean);
+
+  const pares = VCONCPAR.map(p=>({...p, valor:+p.valor})).sort((a,b)=>b.valor-a.valor);
+  const vPares = soma(pares, p=>p.valor);
+
+  const topo = VCONCPROC.map(c=>({...c, diferenca:+c.diferenca, controle:+c.controle, advbox:+c.advbox}))
+    .sort((a,b)=>Math.abs(b.diferenca)-Math.abs(a.diferenca)).slice(0,12);
+  const nomeSit = {so_advbox:'Só no ADVBox', so_controle:'Só no controle', valor_diferente:'Valor diferente'};
 
   return `<div class="cx" style="margin-bottom:14px">
     <h3>Conciliação entre as fontes</h3>
-    <p class="sub">A mesma receita, contada por dois caminhos diferentes. Onde as colunas divergem, alguém vai discutir número em reunião.</p>
+    <p class="sub">A mesma receita, contada por dois caminhos. Os dois lados olham ${ANO} — o ano do extrato do ADVBox.</p>
     <table class="tb">
       <tr><th>Origem</th><th class="n">Controle da equipe</th><th class="n">ADVBox</th><th class="n">Diferença</th></tr>
       ${linhas.map(l=>`<tr>
-        <td><b>${l.o}</b><div class="p">${esc(l.a)} × ${esc(l.b)}</div></td>
+        <td><b>${esc(l.o)}</b><div class="p">${esc((rotulo[l.o]||{}).a||'')} × ${esc((rotulo[l.o]||{}).b||'')}</div></td>
         <td class="n">${brl2(l.va)}</td>
         <td class="n">${brl2(l.vb)}</td>
         <td class="n" style="color:${Math.abs(l.dif)<1?'var(--s5)':(Math.abs(l.dif)>40000?'var(--bad)':'var(--warn)')}">
@@ -840,13 +935,44 @@ function conciliacao(){
       <tr class="tot"><td>Divergência absoluta somada</td><td class="n"></td><td class="n"></td>
         <td class="n" style="color:var(--warn)">${brl2(difTotal)}</td></tr>
     </table>
-    <div class="nota" style="margin:14px 0 0">
-      <b>Esta é a conta que hoje ninguém fecha.</b> As planilhas da equipe e o ADVBox contam a mesma receita
-      por caminhos diferentes, e a diferença acumulada é de ${brl(difTotal)}. Nenhum dos lados está
-      necessariamente errado — datas de competência e de pagamento não coincidem, e o ADVBox registra
-      alvarás e restituições que o mapa não tem. O ponto é que enquanto forem duas bases, essa diferença
-      volta toda reunião. Com fonte única, ela desaparece por construção.
-    </div></div>`;
+
+    <h3 style="margin-top:22px">Do que essa diferença é feita</h3>
+    <p class="sub">Divergência sem nome vira discussão. Com nome, vira tarefa.</p>
+    <table class="tb">
+      ${explic.map(e=>`<tr><td><b>${esc(e.t)}</b>
+        <div class="p" style="line-height:1.5;white-space:normal">${e.d}</div></td>
+        <td class="n">${brl2(e.v)}<div class="p">${pct(e.v,difTotal).toFixed(0)}%</div></td></tr>`).join('')}
+      <tr class="tot"><td>Total</td><td class="n">${brl2(difTotal)}</td></tr>
+    </table>
+  </div>
+
+  ${pares.length?`<div class="cx" style="margin-bottom:14px">
+    <h3>Mesmo dinheiro sob dois números de processo</h3>
+    <p class="sub">Valor idêntico, lados opostos. ${pares.length} ocorrências, ${brl(vPares)} de cada lado.
+      Não muda o total — os dois se anulam —, mas torna a conciliação por processo impossível
+      e é o tipo de coisa que vira pagamento em duplicidade.</p>
+    <table class="tb">
+      <tr><th>Número no ADVBox</th><th>Número no controle</th><th class="n">Valor</th></tr>
+      ${pares.map(p=>`<tr>
+        <td class="mono" style="font-size:11px">${esc(p.processo_advbox)}</td>
+        <td class="mono" style="font-size:11px">${esc(p.processo_controle)}</td>
+        <td class="n">${brl2(p.valor)}</td></tr>`).join('')}
+    </table></div>`:''}
+
+  ${topo.length?`<div class="cx" style="margin-bottom:14px">
+    <h3>Onde a diferença está, processo a processo</h3>
+    <p class="sub">As ${topo.length} maiores de ${VCONCPROC.length}. Clique para abrir o que o sistema conhece do processo.</p>
+    <table class="tb">
+      <tr><th>Processo</th><th>Situação</th><th class="n">Controle</th><th class="n">ADVBox</th><th class="n">Diferença</th></tr>
+      ${topo.map(c=>`<tr>
+        <td class="mono" style="font-size:11px"><button class="bt" style="padding:2px 8px;font-size:11px"
+          data-busca="${esc(c.processo)}">${esc(c.processo)}</button></td>
+        <td><span class="selo ${c.situacao==='so_advbox'?'w':(c.situacao==='so_controle'?'d':'')}">${nomeSit[c.situacao]||c.situacao}</span></td>
+        <td class="n">${c.controle?brl2(c.controle):'—'}</td>
+        <td class="n">${c.advbox?brl2(c.advbox):'—'}</td>
+        <td class="n" style="color:${c.diferenca>0?'var(--warn)':'var(--bad)'}">${c.diferenca>0?'+':''}${brl2(c.diferenca)}</td>
+      </tr>`).join('')}
+    </table></div>`:''}`;
 }
 
 /* ==================================================================
@@ -873,7 +999,7 @@ function telaBusca(termo){
       const nome = ref.cliente||ref.autor||'';
       return `<div class="resu">
         <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
-          <span class="mono" style="font-size:12.5px;font-weight:700">${p}</span>
+          <span class="mono" style="font-size:12.5px;font-weight:700">${esc(p)}</span>
           <span style="font-size:12.5px">${esc(cap(nome))}</span>
           <span style="margin-left:auto;font-size:11px;color:var(--txt-3)">${esc(cap(ref.adv||''))}</span>
         </div>
@@ -895,7 +1021,7 @@ function telaBusca(termo){
             background:#A3E635;box-shadow:0 0 8px #A3E635"></span>
           <b style="width:78px;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
             font-family:'JetBrains Mono',monospace">Faturado</b>
-          <span>${x.rec==='SIM'?'Recebido':'Aguardando pagamento'} · ${x.orig}</span>
+          <span>${x.rec==='SIM'?'Recebido':'Aguardando pagamento'} · ${esc(x.orig)}</span>
           <span class="mono" style="margin-left:auto;font-weight:700">${brl2(x.valor)}</span>
           <button class="bt" data-abrir="F" data-id="${x.id}">Abrir</button></div>`).join('')}
       </div>`;
@@ -917,8 +1043,8 @@ function abre(tipo,id){
       {r:'Recebido em conta', d:e.drec, c:'#A3E635'}
     ].filter(x=>x.d);
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
-        font-family:'JetBrains Mono',monospace">Execução · controle ${e.ctrl||'—'}</div>
-      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${e.proc}</div>
+        font-family:'JetBrains Mono',monospace">Execução · controle ${esc(e.ctrl)||'—'}</div>
+      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(e.proc)}</div>
       <div style="margin-top:9px"><span style="background:${f.cor};color:#04070C;padding:3px 11px;
         border-radius:99px;font-size:11px;font-weight:700">${esc(f.nome)}</span></div>`;
     h = `<div class="bloco"><h4>Valor</h4>
@@ -948,8 +1074,8 @@ function abre(tipo,id){
     const f = fA(x.st);
     const fat = FAT.filter(y=>y.proc===x.proc);
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
-        font-family:'JetBrains Mono',monospace">Tratativa · ${x.fase}-sentença</div>
-      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${x.proc}</div>
+        font-family:'JetBrains Mono',monospace">Tratativa · ${esc(x.fase)}-sentença</div>
+      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(x.proc)}</div>
       <div style="margin-top:9px"><span style="background:${f.cor};color:#04070C;padding:3px 11px;
         border-radius:99px;font-size:11px;font-weight:700">${esc(f.nome)}</span></div>`;
     h = `<div class="bloco"><h4>Partes</h4>
@@ -960,22 +1086,22 @@ function abre(tipo,id){
       <div class="bloco"><h4>Tratativa</h4><div class="par">
         <div class="it"><div class="r">Canal</div><div class="v">${esc(cap(x.canal))||'—'}</div></div>
         <div class="it"><div class="r">Advogado</div><div class="v">${esc(cap(x.adv))}</div></div>
-        <div class="it"><div class="r">Estado</div><div class="v">${x.uf}</div></div>
+        <div class="it"><div class="r">Estado</div><div class="v">${esc(x.uf)}</div></div>
         <div class="it"><div class="r">Data do registro</div><div class="v mono">${dtb(x.data)}</div></div>
       </div>
       ${x.data?`<div style="font-size:11.5px;color:var(--txt-3);margin-top:4px">Há ${dias(x.data)} dias na base.</div>`:''}
       ${x.obs?`<div style="font-size:12px;color:var(--txt-2);margin-top:11px;padding-top:11px;
         border-top:1px solid var(--line)">${esc(x.obs)}</div>`:''}</div>
       ${fat.length?`<div class="bloco"><h4>Faturamento deste processo</h4>
-        ${fat.map(y=>`<div class="it"><div class="r">${y.orig} · ${y.fase}</div>
+        ${fat.map(y=>`<div class="it"><div class="r">${esc(y.orig)} · ${esc(y.fase)}</div>
           <div class="v mono">${brl2(y.valor)} — ${y.rec==='SIM'?'recebido em '+dtb(y.drec):'aguardando'}</div></div>`).join('')}
       </div>`:''}`;
   }
   if(tipo==='F'){
     const x = FAT.find(y=>y.id===id); if(!x) return;
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
-        font-family:'JetBrains Mono',monospace">Acordo faturado · ${x.orig} · ${x.fase}</div>
-      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${x.proc}</div>
+        font-family:'JetBrains Mono',monospace">Acordo faturado · ${esc(x.orig)} · ${esc(x.fase)}</div>
+      <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(x.proc)}</div>
       <div style="margin-top:9px"><span style="background:${x.rec==='SIM'?'#A3E635':'#F59E0B'};color:#04070C;
         padding:3px 11px;border-radius:99px;font-size:11px;font-weight:700">
         ${x.rec==='SIM'?'Recebido':'Aguardando pagamento'}</span></div>`;
@@ -989,8 +1115,8 @@ function abre(tipo,id){
         <div class="par" style="margin-top:10px">
           <div class="it"><div class="r">Advogado</div><div class="v">${esc(cap(x.adv))}</div></div>
           <div class="it"><div class="r">Produto</div><div class="v">${esc(x.prod)||'—'}</div></div>
-          <div class="it"><div class="r">Estado</div><div class="v">${x.uf}</div></div>
-          <div class="it"><div class="r">Origem</div><div class="v">${cap(x.orig)}</div></div>
+          <div class="it"><div class="r">Estado</div><div class="v">${esc(x.uf)}</div></div>
+          <div class="it"><div class="r">Origem</div><div class="v">${esc(cap(x.orig))}</div></div>
         </div></div>
       <div class="bloco"><h4>Linha do tempo</h4>
         <div class="rota">${rota.map(y=>`<div class="et">
@@ -1026,8 +1152,10 @@ function telaAjustes(){
     <div class="cab"><div class="olho">Configuração</div><h1>Ajustes</h1>
       <p>Renomeie fases, mude cores, mova coluna de grupo, mexa nas metas e nos limites de alerta. Muda na hora nas esteiras.</p></div>
 
-    <div class="nota"><b>Nesta versão as edições valem enquanto a aba estiver aberta.</b>
-      Quando o sistema for ligado ao banco, elas passam a valer para a equipe inteira e ficam salvas.</div>
+    <div class="nota"><b>As edições desta tela valem só enquanto a aba estiver aberta.</b>
+      Escrever no banco exige sessão autenticada, e o login ainda não foi ligado — hoje o ANDON
+      é somente leitura. Enquanto isso, use esta tela para simular: mude a meta e veja o painel
+      reagir, sem alterar nada para os outros.</div>
 
     <div class="grade g2">
       <div class="cx"><h3>Fases de acordos</h3>
@@ -1058,11 +1186,20 @@ function telaAjustes(){
           <tr><td>Mapa de execução</td><td class="n">${EXEC.length}</td></tr>
           <tr><td>Controle de tratativas</td><td class="n">${TRAT.length}</td></tr>
           <tr><td>Faturamento de acordos</td><td class="n">${FAT.length}</td></tr>
-          <tr><td>Acordos trabalhistas</td><td class="n">${TRAB.length}</td></tr>
-          <tr><td>Lançamentos ADVBox</td><td class="n">${ADVMES.length} meses</td></tr>
+          <tr><td>Acordos trabalhistas</td>
+              <td class="n" style="color:${TRAB.length?'inherit':'var(--bad)'}">${TRAB.length}</td></tr>
+          <tr><td>ADVBox · meses com lançamento</td><td class="n">${new Set(ADVMES.map(a=>a.mes)).size}</td></tr>
+          <tr class="tot"><td>Último recebimento na base</td>
+              <td class="n">${M.ultimoDado?dtb(M.ultimoDado):'—'}
+                <div class="p">${M.diasSemDado!==null?'há '+M.diasSemDado+' dias':'sem data'}</div></td></tr>
         </table>
-        <div class="nota" style="margin-top:14px">Hoje é uma foto das planilhas.
-          Ligado ao banco, a atualização passa a ser contínua e a equipe para de digitar duas vezes.</div></div>
+        ${TRAB.length?'':`<div class="nota" style="margin-top:14px">
+          <b>Acordos trabalhistas está zerada.</b> Não existe arquivo alimentando essa tabela em
+          <code>dados/</code>, e por isso os ${brl(ADVBOX['Acordo Trabalhista']||0)} que o ADVBox
+          registra aparecem inteiros como divergência na conciliação.</div>`}
+        <div class="nota info" style="margin-top:14px">Os dados vêm do repositório no GitHub.
+          Trocar os arquivos de <code>dados/</code> e dar push atualiza o banco sozinho, em cerca
+          de 20 segundos. Ninguém precisa abrir o Supabase.</div></div>
     </div>`;
 
   document.querySelectorAll('[data-c]').forEach(el=>{
@@ -1105,6 +1242,14 @@ function desenha(){
 function ligaFichas(){
   document.querySelectorAll('[data-abrir]').forEach(el=>{
     el.onclick = ev=>{ ev.stopPropagation(); abre(el.dataset.abrir, el.dataset.id); };
+  });
+}
+/* Da conciliação para a busca: um processo divergente só vira tarefa se dá
+   para ver, num clique, o que o sistema sabe dele. */
+function ligaBusca(){
+  document.querySelectorAll('[data-busca]').forEach(el=>{
+    el.onclick = ev=>{ ev.stopPropagation();
+      document.getElementById('q').value = el.dataset.busca; vai('busca'); };
   });
 }
 function ligaFluxo(){
@@ -1152,9 +1297,9 @@ function carregando(msg, erro){
     calcula();
     if(!EXEC.length && !TRAT.length){
       carregando('Banco conectado, mas ainda vazio',
-        'O esquema está no ar e a conexão funciona — só faltam as linhas das planilhas. '+
-        'Rode os arquivos <b>carga_execucao.sql</b>, <b>carga_tratativa.sql</b> e '+
-        '<b>carga_faturado.sql</b> no SQL Editor do Supabase e recarregue esta página.');
+        'O esquema está no ar e a conexão funciona — só faltam as linhas. '+
+        'A carga é automática: abra a aba <b>Actions</b> do repositório no GitHub e rode '+
+        '<b>Atualizar banco</b>. Em uns 20 segundos recarregue esta página.');
       return;
     }
     desenha();

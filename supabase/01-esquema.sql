@@ -7,12 +7,11 @@
 -- hora de sair do projeto de teste para o definitivo.
 --
 -- Ordem: rode este arquivo UMA vez num projeto limpo. A carga de dados
--- vem depois — pela Edge Function `carregar` (recomendado, veja
--- docs/COMO-COLOCAR-NO-AR.md) ou pelos arquivos supabase/carga_*.sql.
+-- vem depois, pela Edge Function `carregar` — veja docs/COMO-FUNCIONA.md.
 -- =====================================================================
 
 -- Limpeza do esquema anterior, caso exista
-drop view if exists vw_conciliacao_processo, vw_conciliacao, vw_painel, vw_kanban_execucao,
+drop view if exists vw_conciliacao_par, vw_conciliacao_processo, vw_conciliacao, vw_painel, vw_kanban_execucao,
   vw_kanban_acordo, vw_decididos, vw_previsao, vw_receita_mes, vw_receita, vw_plantado,
   advbox_resumo, advbox_mes cascade;
 
@@ -457,6 +456,23 @@ where abs(coalesce(ab.v,0)-coalesce(eq.v,0)) >= 0.01;
 comment on view vw_conciliacao_processo is
   'Processo a processo: onde ADVBox e controle da equipe discordam.';
 
+-- Mesmo valor, lados opostos, processos diferentes: quase sempre o mesmo
+-- dinheiro digitado sob dois números — erro de digitação, ou o número do
+-- cumprimento de sentença de um lado e o do processo de origem do outro.
+-- Só pareia valor que aparece uma única vez de cada lado, para não inventar
+-- correspondência onde há ambiguidade.
+create or replace view vw_conciliacao_par as
+with a as (select processo, advbox v from vw_conciliacao_processo where situacao='so_advbox'),
+     b as (select processo, controle v from vw_conciliacao_processo where situacao='so_controle'),
+     uv as (select v from a group by v having count(*)=1
+            intersect
+            select v from b group by v having count(*)=1)
+select a.processo as processo_advbox, b.processo as processo_controle, a.v as valor
+from a join b on b.v = a.v join uv on uv.v = a.v;
+
+comment on view vw_conciliacao_par is
+  'Pares de mesmo valor em lados opostos: indicio de processo digitado errado ou renumerado.';
+
 -- Painel do gestor, em uma linha
 create or replace view vw_painel as
 with r as (select coalesce(sum(valor),0) v from vw_receita where extract(year from data)=2026),
@@ -519,6 +535,7 @@ alter view vw_kanban_acordo    set (security_invoker = on);
 alter view vw_kanban_execucao  set (security_invoker = on);
 alter view vw_conciliacao      set (security_invoker = on);
 alter view vw_conciliacao_processo set (security_invoker = on);
+alter view vw_conciliacao_par  set (security_invoker = on);
 alter view advbox_resumo       set (security_invoker = on);
 alter view advbox_mes          set (security_invoker = on);
 alter view vw_painel           set (security_invoker = on);

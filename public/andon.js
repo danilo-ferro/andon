@@ -5,8 +5,8 @@
    RELATÓRIO FATURAMENTO e Financeiro ADVBox — 2026.
    ================================================================== */
 const SB = {
-  url: 'https://btkkuzjjsiggqtopnzyd.supabase.co',
-  key: 'sb_publishable_HlJrUMgfaCYYby-YyuMPCQ_0-BpkJOY'
+  url: 'https://nkodijlsftdlzcmgjahk.supabase.co',
+  key: 'sb_publishable_s6EH8fDfeVrBVJVz9i_E9A_QYcgkf88'
 };
 
 const HOJE = new Date('2026-07-31T12:00:00');

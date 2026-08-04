@@ -19,7 +19,7 @@ jobs:
     env:
       # Opcional. So preencha se um dia o esquema do banco mudar.
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      FUNCAO: https://btkkuzjjsiggqtopnzyd.supabase.co/functions/v1/carregar
+      FUNCAO: https://nkodijlsftdlzcmgjahk.supabase.co/functions/v1/carregar
 
     steps:
       - name: Baixar o repositorio

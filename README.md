@@ -91,7 +91,7 @@ calculou fora daqui — e isso é bug de implementação, não de interpretaçã
 
 | Peça | Onde |
 |---|---|
-| Banco | Supabase · projeto `erp-canaverde-teste` (`btkkuzjjsiggqtopnzyd`, us-east-2) |
+| Banco | Supabase · projeto `andon` (`nkodijlsftdlzcmgjahk`, sa-east-1) |
 | Front | Vercel, servindo `public/` |
 | Carga | Edge Function `carregar`, disparada pelo GitHub Actions a cada push |
 
@@ -102,10 +102,12 @@ RLS — pode ficar no repositório. A `service_role` **nunca** entra aqui.
 
 ## Próximos passos
 
-1. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
+1. Carregar `advbox_resumo` e `advbox_mes` — sem elas a tela de Financeiro
+   fica sem a composição da receita e a conciliação não fecha contra nada.
+2. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
    é o único número que falta para o repasse calcular sozinho.
-2. Ligar o login do Supabase para habilitar escrita pela tela.
-3. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
+3. Ligar o login do Supabase para habilitar escrita pela tela. As políticas de
+   escrita já existem e valem para `authenticated`; hoje ninguém se autentica,
+   então na prática o sistema é só leitura.
+4. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
    assim que houver histórico de expedição e recebimento no mesmo lugar.
-4. Sair do projeto de teste para o definitivo: rodar `01-esquema.sql` no novo
-   projeto e trocar `SB.url` e `SB.key` em `public/andon.js`.

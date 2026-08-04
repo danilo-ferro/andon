@@ -18,9 +18,10 @@ const NOME = 'andon';
 const RAMOS = ['main', 'master'];
 
 const FONTES = [
-  { arquivo: 'execucao.psv',  rpc: 'carrega_execucao',  tabela: 'execucao'        },
-  { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa'       },
-  { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado' },
+  { arquivo: 'execucao.psv',  rpc: 'carrega_execucao',  tabela: 'execucao'          },
+  { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa'         },
+  { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado'   },
+  { arquivo: 'advbox.psv',    rpc: 'carrega_advbox',    tabela: 'advbox_lancamento' },
 ];
 
 const LOTE = 250;

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANDON · Canaverde &amp; Aguiar</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23202C26'/%3E%3Cg fill='none' stroke='%23C5DEB9' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M 56.3 14.5 A 36 36 0 1 1 43.7 14.5'/%3E%3Cpath d='M 51.5 14.2 A 44 44 0 0 0 77.6 73.1'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/andon.css">
+</head>
+<body>
+
+<header class="topo">
+  <div class="topo-in">
+    <div class="marca">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <rect width="100" height="100" rx="22" fill="#202C26"/>
+        <g fill="none" stroke="#C5DEB9" stroke-width="7" stroke-linecap="round">
+          <path d="M 56.3 14.5 A 36 36 0 1 1 43.7 14.5"/>
+          <path d="M 51.5 14.2 A 44 44 0 0 0 77.6 73.1"/>
+        </g>
+      </svg>
+      <div>
+        <div class="n">ANDON</div>
+        <div class="s">Canaverde &amp; Aguiar</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="topo-dir">
+      <label class="campo-busca">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" placeholder="processo, autor, réu, escritório…" autocomplete="off">
+      </label>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="tela on" id="t-painel"></section>
+  <section class="tela" id="t-acordos"></section>
+  <section class="tela" id="t-execucao"></section>
+  <section class="tela" id="t-financeiro"></section>
+  <section class="tela" id="t-busca"></section>
+  <section class="tela" id="t-ajustes"></section>
+</main>
+
+<div class="veu" id="veu"></div>
+<aside class="gav" id="gav">
+  <div class="gav-cab"><button class="x" id="fx" aria-label="Fechar">&times;</button><div id="gavT"></div></div>
+  <div class="gav-corpo" id="gavC"></div>
+</aside>
+
+
+<script src="/andon.js"></script>
+</body>
+</html>

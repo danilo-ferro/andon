@@ -1,0 +1,64 @@
+# ANDON · a cada push, o banco do Supabase se atualiza sozinho.
+# Voce nao precisa abrir o Supabase para nada.
+
+name: Atualizar banco
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dados/**'
+      - 'supabase/**'
+      - '.github/workflows/**'
+  workflow_dispatch:        # tambem da para rodar na mao, pelo botao "Run workflow"
+
+jobs:
+  banco:
+    name: Carregar dados no Supabase
+    runs-on: ubuntu-latest
+    env:
+      # Opcional. So preencha se um dia o esquema do banco mudar.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FUNCAO: https://btkkuzjjsiggqtopnzyd.supabase.co/functions/v1/carregar
+
+    steps:
+      - name: Baixar o repositorio
+        uses: actions/checkout@v4
+
+      - name: Aplicar mudancas no esquema
+        # Pulado enquanto o segredo DATABASE_URL nao existir.
+        if: env.DATABASE_URL != ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          echo "Aplicando supabase/01-esquema.sql..."
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/01-esquema.sql
+          echo "Esquema aplicado."
+
+      - name: Carregar os dados
+        run: |
+          echo "Chamando $FUNCAO"
+          CODIGO=$(curl -s -o resposta.json -w "%{http_code}" --max-time 300 "$FUNCAO")
+          echo "--- resposta do Supabase ---"
+          cat resposta.json || true
+          echo
+          if [ "$CODIGO" != "200" ]; then
+            echo "::error::A carga falhou (HTTP $CODIGO). A resposta acima diz o motivo."
+            exit 1
+          fi
+          echo "Dados carregados com sucesso."
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "## ANDON - atualizacao do banco"
+            echo
+            if [ -f resposta.json ]; then
+              echo '```json'
+              cat resposta.json
+              echo '```'
+            else
+              echo "Sem resposta do Supabase."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -24,11 +24,7 @@ const ISO   = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const dias  = s => s ? Math.round((HOJE - new Date(s + 'T12:00:00')) / 864e5) : null;
 
 /* ---------- sessão e acesso ao banco ---------- */
-const SESSAO = {
-  ler:    () => { try { return JSON.parse(localStorage.getItem('andon.sessao') || 'null'); } catch { return null; } },
-  gravar: s  => localStorage.setItem('andon.sessao', JSON.stringify(s)),
-  limpar: () => localStorage.removeItem('andon.sessao')
-};
+const SESSAO = window.ANDON_SESSAO;
 let sessao = SESSAO.ler();
 const logado = () => !!(sessao && sessao.access_token);
 
@@ -38,7 +34,7 @@ async function api(caminho, opcoes) {
   const r = await fetch(`${SB.url}/rest/v1/${caminho}`, { ...opcoes, headers: h });
   if (r.status === 401 || r.status === 403) throw new Error(logado()
     ? 'Sua sessão expirou. Entre de novo para salvar.'
-    : 'Só quem está logado pode gravar. Use o botão Entrar, no alto à direita.');
+    : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
   if (!r.ok) throw new Error((await r.text()).slice(0, 240) || `erro ${r.status}`);
   return r.status === 204 ? null : r.json();
 }
@@ -330,23 +326,27 @@ function telaPainel(l) {
   const vencidas   = aReceber.filter(p => p.previsao && p.previsao < ISO(HOJE));
 
   /* ---- evolução mês a mês ---- */
+  // Um mes entra quando houve protocolo nele. Meses sem movimento entre dois
+  // com movimento continuam na linha: o buraco tem que ficar visivel.
   const meses = {};
-  const poe = (chave, campo, t) => {
-    const d = t[campo]; if (!d) return;
-    const m = d.slice(0, 7);
-    meses[m] = meses[m] || { m, abertas: 0, fechadas: 0, faturado: 0, valor: 0 };
-    if (chave === 'abertas') meses[m].abertas++;
-    else { meses[m].fechadas++; meses[m].valor += +t.valor || 0; }
-  };
-  l.forEach(t => poe('abertas', 'data', t));
-  fechadas.forEach(t => poe('fechadas', 'data_atualizacao', t));
   fat.forEach(t => {
     const m = t.data_protocolo.slice(0, 7);
-    meses[m] = meses[m] || { m, abertas: 0, fechadas: 0, faturado: 0, valor: 0 };
+    meses[m] = meses[m] || { m, faturado: 0, protocoladas: 0 };
     meses[m].faturado += +t.valor || 0;
+    meses[m].protocoladas++;
   });
+  const chaves = Object.keys(meses).sort();
+  if (chaves.length > 1) {
+    const fim = chaves[chaves.length - 1];
+    let [a, mm] = chaves[0].split('-').map(Number);
+    while (`${a}-${String(mm).padStart(2, '0')}` <= fim) {
+      const k = `${a}-${String(mm).padStart(2, '0')}`;
+      meses[k] = meses[k] || { m: k, faturado: 0, protocoladas: 0 };
+      if (++mm > 12) { mm = 1; a++; }
+    }
+  }
   const linha = Object.values(meses).sort((a, b) => a.m.localeCompare(b.m)).slice(-14);
-  const teto  = Math.max(...linha.map(x => Math.max(x.faturado, x.valor)), 1);
+  const teto  = Math.max(...linha.map(x => x.faturado), 1);
   const rotMes = m => {
     const N = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     return N[+m.slice(5, 7) - 1] + '/' + m.slice(2, 4);
@@ -398,33 +398,27 @@ function telaPainel(l) {
 
     <div class="cx" style="margin-bottom:14px">
       <h3>Evolução mês a mês</h3>
-      <p class="sub">Barra cheia é o faturado (data do protocolo). A linha clara é o
-         valor dos acordos fechados no mês, que ainda pode não ter sido protocolado.</p>
+      <p class="sub">Faturamento por mês, contado na data do protocolo. O número abaixo
+         de cada barra é a quantidade de minutas protocoladas naquele mês.</p>
       ${linha.length ? `<div style="display:flex;gap:6px;align-items:flex-end;justify-content:flex-start">
         ${linha.map(x => `<div style="flex:1;min-width:0;max-width:96px;display:flex;
             flex-direction:column;align-items:center;gap:6px">
           <div style="height:150px;width:100%;display:flex;align-items:flex-end;
-               justify-content:center;gap:3px">
-            <div title="Faturado ${brl2(x.faturado)}"
-                 style="width:38%;height:${x.faturado / teto * 100}%;min-height:${x.faturado ? 2 : 0}px;
-                 background:linear-gradient(180deg,#BEF264,#84CC16);border-radius:3px 3px 0 0;
-                 box-shadow:0 0 14px -2px #A3E635"></div>
-            <div title="Fechado ${brl2(x.valor)}"
-                 style="width:38%;height:${x.valor / teto * 100}%;min-height:${x.valor ? 2 : 0}px;
-                 background:linear-gradient(180deg,#22D3EE,#0891B2);border-radius:3px 3px 0 0;
-                 opacity:.75"></div>
+               justify-content:center">
+            <div title="${brl2(x.faturado)} em ${x.protocoladas} minuta${x.protocoladas === 1 ? '' : 's'}"
+                 style="width:64%;height:${x.faturado / teto * 100}%;min-height:${x.faturado ? 2 : 0}px;
+                 background:linear-gradient(180deg,#BEF264,#84CC16);border-radius:4px 4px 0 0;
+                 box-shadow:0 0 16px -3px #A3E635"></div>
           </div>
           <div style="font-size:10.5px;color:var(--txt-3)">${rotMes(x.m)}</div>
-          <div class="mono" style="font-size:9.5px;color:var(--txt-3)">${x.faturado ? kk(x.faturado) : ''}</div>
-          <div class="mono" style="font-size:9.5px;color:var(--txt-3)">${x.fechadas || ''}</div>
+          <div class="mono" style="font-size:10px;color:var(--txt-2)">${x.faturado ? kk(x.faturado) : ''}</div>
+          <div class="mono" style="font-size:9.5px;color:var(--txt-3)">${x.protocoladas || ''}</div>
         </div>`).join('')}
       </div>
-      <div style="display:flex;gap:16px;margin-top:14px;font-size:11.5px;color:var(--txt-2);flex-wrap:wrap">
-        <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;
-          background:#A3E635;margin-right:5px"></i>Faturado no mês</span>
-        <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;
-          background:#22D3EE;margin-right:5px"></i>Fechado no mês</span>
-        <span style="color:var(--txt-3)">o número embaixo é a quantidade de acordos</span>
+      <div style="margin-top:14px;font-size:11.5px;color:var(--txt-3)">
+        Total no período <b class="mono" style="color:var(--txt);font-size:13px">${brl(
+          linha.reduce((s, x) => s + x.faturado, 0))}</b>
+        em ${linha.reduce((s, x) => s + x.protocoladas, 0)} minutas
       </div>`
       : '<div class="sem-contato">Sem movimento no período selecionado.</div>'}
     </div>
@@ -765,11 +759,9 @@ async function protege(fn) {
 }
 
 function pintaSessao() {
-  $('sessao').innerHTML = logado()
-    ? `<span style="font-size:11.5px;color:var(--txt-3)">${esc(sessao.email || '')}</span>
-       <button class="bt" id="sair">Sair</button>`
-    : `<a class="bt p" href="/cadastros">Entrar</a>`;
-  if (logado()) $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
+  $('sessao').innerHTML = `<span class="quem">${esc((sessao && (sessao.nome || sessao.email)) || '')}</span>
+     <button class="bt" id="sair">Sair</button>`;
+  $('sair').onclick = () => SESSAO.sair();
 }
 
 const TELAS = [{ id: 'painel', rotulo: 'Painel de Gestão' },
@@ -791,9 +783,6 @@ function desenha() {
   else if (aba === 'kanban') telaKanban(l);
   else telaLista(l);
 
-  if (!logado()) $('aviso').innerHTML = `<div class="nota"
-    style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">
-    <b>Somente leitura.</b> Para criar ou alterar tratativas, entre pela tela de Cadastros.</div>`;
 
   document.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () =>
     abreForm(TRAT.find(t => t.id === +b.dataset.abrir)));

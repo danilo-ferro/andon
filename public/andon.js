@@ -1228,6 +1228,7 @@ let atual='painel';
 function nav(){
   document.getElementById('nav').innerHTML = TELAS.map(([id,r])=>
     `<button class="${id===atual?'on':''}" data-t="${id}">${r}</button>`).join('')
+    + `<a class="nav-link" href="/acordos">Esteira de acordos</a>`
     + `<a class="nav-link" href="/cadastros">Cadastros</a>`;
   document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>vai(b.dataset.t));
 }

@@ -1,0 +1,85 @@
+# ANDON · guarda no repositorio uma copia das migrations do Supabase.
+#
+# Sem isso, o esquema do banco existe em um lugar so: dentro do proprio
+# projeto Supabase. Se o projeto for perdido ou trocado, o repositorio nao
+# recria o banco — e a premissa do projeto e que ele rode do zero.
+#
+# Roda depois de cada push que mexa em supabase/, uma vez por dia, e no
+# botao "Run workflow".
+
+name: Guardar esquema do banco
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/esquema.yml'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  esquema:
+    name: Baixar migrations e comitar
+    runs-on: ubuntu-latest
+    env:
+      FUNCAO: https://nkodijlsftdlzcmgjahk.supabase.co/functions/v1/esquema
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Baixar as migrations
+        run: |
+          CODIGO=$(curl -s -o esquema.json -w "%{http_code}" --max-time 120 "$FUNCAO")
+          if [ "$CODIGO" != "200" ]; then
+            echo "::error::A funcao esquema respondeu HTTP $CODIGO"
+            head -c 2000 esquema.json || true
+            exit 1
+          fi
+
+      - name: Escrever supabase/migrations/
+        run: |
+          python3 - <<'PY'
+          import json, os, re, pathlib
+          d = json.load(open('esquema.json', encoding='utf-8'))
+          if not d.get('ok'):
+              raise SystemExit('funcao devolveu erro: ' + str(d.get('erro')))
+          destino = pathlib.Path('supabase/migrations')
+          destino.mkdir(parents=True, exist_ok=True)
+          # apaga o que sobrou de migrations removidas do banco
+          for antigo in destino.glob('*.sql'):
+              antigo.unlink()
+          for m in d['migrations']:
+              nome = re.sub(r'[^A-Za-z0-9_]+', '_', str(m['name']))
+              (destino / f"{m['version']}_{nome}.sql").write_text(m['sql'], encoding='utf-8')
+          print(f"{d['total']} migrations gravadas")
+          PY
+          rm -f esquema.json
+
+      - name: Comitar se mudou
+        run: |
+          if [ -z "$(git status --porcelain supabase/migrations)" ]; then
+            echo "Esquema ja estava em dia."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/migrations
+          git commit -m "Atualizar copia das migrations do Supabase
+
+          Gerado por .github/workflows/esquema.yml. Nao editar na mao:
+          a fonte e o proprio banco, e este commit e so a copia de seguranca."
+          git push
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "## Esquema do banco"
+            echo
+            ls -1 supabase/migrations 2>/dev/null | sed 's/^/- /' || echo "Nenhuma migration gravada."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,475 @@
+/* ==================================================================
+   ANDON · Cadastros — Equipe, Réus e Escritórios
+   Alimenta o bloco "Contatos para esta tratativa": ao escolher réu,
+   escritório e forma de contato, o formulário mostra o que está aqui.
+   ================================================================== */
+const SB = {
+  url: 'https://nkodijlsftdlzcmgjahk.supabase.co',
+  key: 'sb_publishable_s6EH8fDfeVrBVJVz9i_E9A_QYcgkf88'
+};
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const $ = id => document.getElementById(id);
+
+/* ---------- sessão ----------
+   A leitura funciona com a chave pública. A escrita exige sessão: sem ela
+   o banco recusa, e é isso que impede alguém de fora apagar a base. */
+const SESSAO = {
+  ler:   () => { try { return JSON.parse(localStorage.getItem('andon.sessao') || 'null'); } catch { return null; } },
+  gravar: s => localStorage.setItem('andon.sessao', JSON.stringify(s)),
+  limpar: () => localStorage.removeItem('andon.sessao')
+};
+let sessao = SESSAO.ler();
+const logado = () => !!(sessao && sessao.access_token);
+
+function cabecalhos(extra) {
+  const h = { apikey: SB.key, 'Content-Type': 'application/json', ...(extra || {}) };
+  h.Authorization = 'Bearer ' + (logado() ? sessao.access_token : SB.key);
+  return h;
+}
+
+async function api(caminho, opcoes) {
+  const r = await fetch(`${SB.url}/rest/v1/${caminho}`, {
+    ...opcoes, headers: cabecalhos(opcoes && opcoes.headers)
+  });
+  if (r.status === 401 || r.status === 403) {
+    throw new Error(logado()
+      ? 'Sua sessão expirou. Entre de novo para salvar.'
+      : 'Só quem está logado pode gravar. Use o botão Entrar, no alto à direita.');
+  }
+  if (!r.ok) throw new Error((await r.text()).slice(0, 200) || `erro ${r.status}`);
+  return r.status === 204 ? null : r.json();
+}
+
+const ler    = (t, q)   => api(`${t}?${q || 'select=*'}`);
+const criar  = (t, o)   => api(t, { method: 'POST',  body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
+const mudar  = (t, id, o) => api(`${t}?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
+const apagar = (t, id)  => api(`${t}?id=eq.${id}`, { method: 'DELETE' });
+
+async function autenticar(caminho, corpo) {
+  const r = await fetch(`${SB.url}/auth/v1/${caminho}`, {
+    method: 'POST',
+    headers: { apikey: SB.key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.msg || d.error_description || d.message || `erro ${r.status}`);
+  return d;
+}
+
+/* ---------- estado ---------- */
+let PESSOAS = [], REUS = [], ESCRITORIOS = [], CONTATOS = [];
+let aba = 'equipe', busca = '';
+
+const TELAS = [
+  { id: 'equipe',      rotulo: 'Equipe' },
+  { id: 'reus',        rotulo: 'Réus' },
+  { id: 'escritorios', rotulo: 'Escritórios' }
+];
+
+async function carrega() {
+  const [p, r, e, c] = await Promise.all([
+    ler('pessoa', 'select=*&order=ativo.desc,nome.asc'),
+    ler('parte_adversa', 'select=*&order=nome.asc'),
+    ler('escritorio_adverso', 'select=*&order=nome.asc'),
+    ler('contato', 'select=*&order=canal.asc,valor.asc')
+  ]);
+  PESSOAS = p; REUS = r; ESCRITORIOS = e; CONTATOS = c;
+}
+
+const contatosDe = (tipo, id) => CONTATOS.filter(c => c.dono_tipo === tipo && c.dono_id === id);
+const casa = (txt) => !busca || String(txt || '').toLowerCase().includes(busca.toLowerCase());
+
+/* ==================================================================
+   EQUIPE
+   ================================================================== */
+const PAPEIS = [
+  { id: 'advogado',   rotulo: 'Advogado',  classe: 'adv' },
+  { id: 'operador',   rotulo: 'Operador',  classe: 'ope' },
+  { id: 'gestor',     rotulo: 'Gestor',    classe: 'ges' },
+  { id: 'financeiro', rotulo: 'Financeiro', classe: 'ope' }
+];
+const papelClasse = p => (PAPEIS.find(x => x.id === p) || {}).classe || '';
+const papelRotulo = p => (PAPEIS.find(x => x.id === p) || {}).rotulo || p;
+
+function telaEquipe() {
+  const l = PESSOAS.filter(p => casa(p.nome) || casa(p.email) || (p.apelidos || []).some(casa));
+  const ativos = l.filter(p => p.ativo), inativos = l.filter(p => !p.ativo);
+
+  const cartao = p => `
+    <article class="reg ${p.ativo ? '' : 'off'}" data-editar="pessoa" data-id="${p.id}">
+      <div class="corpo">
+        <div class="nome">${esc(p.nome)}</div>
+        <div class="meta">
+          ${(p.papeis || []).map(x => `<span class="pilula ${papelClasse(x)}">${papelRotulo(x)}</span>`).join('')}
+          ${p.ativo ? '' : '<span class="pilula off">inativo</span>'}
+          ${p.email ? `<span>${esc(p.email)}</span>` : '<span>sem e-mail</span>'}
+        </div>
+      </div>
+    </article>`;
+
+  $('t-equipe').innerHTML = `
+    <div class="cab">
+      <div class="olho">Cadastro · ${PESSOAS.length} pessoas</div>
+      <h1>Equipe</h1>
+      <p>Advogados, operadores e gestores. Quem sai do escritório vira <b>inativo</b> em vez de
+         ser apagado: some dos seletores, mas os filtros do histórico continuam achando o
+         trabalho dele.</p>
+    </div>
+    <div class="barra-acao">
+      <button class="bt p" data-novo="pessoa">+ Nova pessoa</button>
+      <span class="conta">${ativos.length} ativos · ${inativos.length} inativos</span>
+    </div>
+    ${l.length ? `<div class="lista">${ativos.map(cartao).join('')}</div>
+      ${inativos.length ? `<h3 style="margin:26px 0 12px;font-size:11px;letter-spacing:.16em;
+        text-transform:uppercase;color:var(--txt-3);font-family:'JetBrains Mono',monospace">
+        Inativos</h3><div class="lista">${inativos.map(cartao).join('')}</div>` : ''}`
+      : '<div class="vazio">Nenhuma pessoa encontrada para esta busca.</div>'}`;
+}
+
+function formPessoa(p) {
+  p = p || { nome: '', email: '', papeis: [], apelidos: [], ativo: true, observacoes: '' };
+  abreGaveta(p.id ? 'Editar pessoa' : 'Nova pessoa', `
+    <div class="campo">
+      <label>Nome completo</label>
+      <input class="inp" id="f-nome" value="${esc(p.nome)}" placeholder="ex.: Mariah Aguiar">
+    </div>
+    <div class="campo">
+      <label>E-mail</label>
+      <input class="inp" id="f-email" type="email" value="${esc(p.email || '')}"
+             placeholder="usado depois para o login">
+    </div>
+    <div class="campo">
+      <label>Papéis</label>
+      <div class="marca-linha">
+        ${PAPEIS.map(x => `<label><input type="checkbox" class="f-papel" value="${x.id}"
+          ${(p.papeis || []).includes(x.id) ? 'checked' : ''}> ${x.rotulo}</label>`).join('')}
+      </div>
+    </div>
+    <div class="campo">
+      <label>Apelidos no histórico</label>
+      <input class="inp" id="f-apelidos" value="${esc((p.apelidos || []).join(', '))}"
+             placeholder="MAX, Dr. Max">
+      <div class="dica">Separe por vírgula. As planilhas antigas guardam o nome curto e
+        maiúsculo. Sem o apelido, filtrar por <b>Max Canaverde</b> não acharia as 695
+        tratativas gravadas como <b>MAX</b>.</div>
+    </div>
+    <div class="campo">
+      <label>Situação</label>
+      <div class="marca-linha">
+        <label><input type="checkbox" id="f-ativo" ${p.ativo ? 'checked' : ''}> Ativo</label>
+      </div>
+      <div class="dica">Desmarcar tira a pessoa dos seletores sem apagar o histórico dela.</div>
+    </div>
+    <div class="campo">
+      <label>Observações</label>
+      <textarea class="inp" id="f-obs" rows="3">${esc(p.observacoes || '')}</textarea>
+    </div>
+    <div class="acoes-form">
+      <button class="bt p" id="f-salvar">Salvar</button>
+      <button class="bt" id="f-cancelar">Cancelar</button>
+      ${p.id ? '<button class="bt perigo" id="f-apagar">Apagar</button>' : ''}
+    </div>`);
+
+  $('f-salvar').onclick = () => protege(async () => {
+    const nome = $('f-nome').value.trim();
+    if (!nome) return alerta('O nome é obrigatório.', 'erro');
+    const dados = {
+      nome,
+      email: $('f-email').value.trim() || null,
+      papeis: [...document.querySelectorAll('.f-papel:checked')].map(x => x.value),
+      apelidos: $('f-apelidos').value.split(',').map(s => s.trim()).filter(Boolean),
+      ativo: $('f-ativo').checked,
+      observacoes: $('f-obs').value.trim() || null
+    };
+    p.id ? await mudar('pessoa', p.id, dados) : await criar('pessoa', dados);
+    await recarrega(`${nome} salvo.`);
+  });
+
+  $('f-cancelar').onclick = fechaGaveta;
+  if (p.id) $('f-apagar').onclick = () => protege(async () => {
+    if (!confirm(`Apagar ${p.nome}?\n\nSe esta pessoa tem histórico, prefira desmarcar "Ativo" — apagar pode deixar filtros antigos sem dono.`)) return;
+    await apagar('pessoa', p.id);
+    await recarrega(`${p.nome} apagado.`);
+  });
+}
+
+/* ==================================================================
+   RÉUS e ESCRITÓRIOS — mesma tela, tabelas diferentes
+   ================================================================== */
+const CFG = {
+  reus: {
+    tabela: 'parte_adversa', dono: 'parte', lista: () => REUS,
+    titulo: 'Réus', singular: 'réu',
+    texto: 'As empresas do outro lado. Os contatos daqui aparecem na tela de tratativa quando o operador escolhe o réu e a forma de contato.'
+  },
+  escritorios: {
+    tabela: 'escritorio_adverso', dono: 'escritorio', lista: () => ESCRITORIOS,
+    titulo: 'Escritórios', singular: 'escritório',
+    texto: 'Os escritórios que defendem os réus. Mesma lógica dos réus: o que estiver aqui aparece na hora da tratativa.'
+  }
+};
+
+function telaParte(qual) {
+  const c = CFG[qual];
+  const l = c.lista().filter(x => casa(x.nome) ||
+    contatosDe(c.dono, x.id).some(k => casa(k.valor)));
+  const semContato = c.lista().filter(x => !contatosDe(c.dono, x.id).length).length;
+
+  $('t-' + qual).innerHTML = `
+    <div class="cab">
+      <div class="olho">Cadastro · ${c.lista().length} ${c.titulo.toLowerCase()}</div>
+      <h1>${c.titulo}</h1>
+      <p>${c.texto}</p>
+    </div>
+    <div class="barra-acao">
+      <button class="bt p" data-novo="${qual}">+ Novo ${c.singular}</button>
+      <span class="conta">${semContato} ainda sem contato</span>
+    </div>
+    ${l.length ? `<div class="lista">${l.map(x => {
+      const k = contatosDe(c.dono, x.id);
+      const em = k.filter(y => y.canal === 'E-MAIL').length;
+      const te = k.length - em;
+      return `<article class="reg ${x.ativo === false ? 'off' : ''}" data-editar="${qual}" data-id="${x.id}">
+        <div class="corpo">
+          <div class="nome">${esc(x.nome)}</div>
+          <div class="meta">
+            ${k.length ? `<span><b>${em}</b> e-mail${em === 1 ? '' : 's'}</span>
+                          <span><b>${te}</b> telefone${te === 1 ? '' : 's'}</span>`
+                       : '<span>sem contato cadastrado</span>'}
+          </div>
+        </div>
+      </article>`;
+    }).join('')}</div>` : `<div class="vazio">Nenhum ${c.singular} encontrado para esta busca.</div>`}`;
+}
+
+function formParte(qual, x) {
+  const c = CFG[qual];
+  const novo = !x;
+  x = x || { nome: '', documento: '', observacoes: '', ativo: true };
+  const k = novo ? [] : contatosDe(c.dono, x.id);
+
+  abreGaveta(novo ? `Novo ${c.singular}` : esc(x.nome), `
+    <div class="campo">
+      <label>Nome</label>
+      <input class="inp" id="f-nome" value="${esc(x.nome)}">
+    </div>
+    ${qual === 'reus' ? `<div class="campo">
+      <label>CNPJ / CPF</label>
+      <input class="inp" id="f-doc" value="${esc(x.documento || '')}">
+    </div>` : ''}
+    <div class="campo">
+      <label>Observações</label>
+      <textarea class="inp" id="f-obs" rows="2">${esc(x.observacoes || '')}</textarea>
+    </div>
+    <div class="acoes-form">
+      <button class="bt p" id="f-salvar">Salvar</button>
+      <button class="bt" id="f-cancelar">Cancelar</button>
+      ${novo ? '' : '<button class="bt perigo" id="f-apagar">Apagar</button>'}
+    </div>
+
+    ${novo ? `<div class="dica" style="margin-top:18px">Salve primeiro para poder adicionar contatos.</div>` : `
+    <div class="bloco" style="margin-top:22px">
+      <h4>Contatos — ${k.length}</h4>
+      <div id="lista-contatos">
+        ${k.length ? k.map(y => `
+          <div class="contato-linha">
+            <span class="canal ${y.canal === 'E-MAIL' ? 'email' : 'tel'}">${y.canal === 'E-MAIL' ? 'E-MAIL' : 'TEL'}</span>
+            <span class="valor">${esc(y.valor)}${y.rotulo ? ` <span class="rot">· ${esc(y.rotulo)}</span>` : ''}</span>
+            <button class="rm" data-rmcontato="${y.id}" title="Remover">&times;</button>
+          </div>`).join('')
+        : '<div class="dica">Nenhum contato ainda. Adicione abaixo e ele passa a aparecer na tela de tratativa.</div>'}
+      </div>
+      <div class="novo-contato">
+        <select class="inp" id="c-canal">
+          <option value="E-MAIL">E-mail</option>
+          <option value="TELEFONE">Telefone</option>
+        </select>
+        <input class="inp" id="c-valor" placeholder="e-mail ou telefone">
+        <input class="inp" id="c-rotulo" placeholder="rótulo (opcional)">
+        <button class="bt p" id="c-add">Adicionar</button>
+      </div>
+    </div>`}`);
+
+  $('f-salvar').onclick = () => protege(async () => {
+    const nome = $('f-nome').value.trim();
+    if (!nome) return alerta('O nome é obrigatório.', 'erro');
+    const dados = { nome, observacoes: $('f-obs').value.trim() || null };
+    if (qual === 'reus') dados.documento = ($('f-doc').value || '').trim() || null;
+    const salvo = x.id ? await mudar(c.tabela, x.id, dados) : await criar(c.tabela, dados);
+    await recarrega(`${nome} salvo.`);
+    const id = x.id || (salvo && salvo[0] && salvo[0].id);
+    if (id) formParte(qual, c.lista().find(y => y.id === id));
+  });
+
+  $('f-cancelar').onclick = fechaGaveta;
+
+  if (!novo) {
+    $('f-apagar').onclick = () => protege(async () => {
+      if (!confirm(`Apagar ${x.nome} e os ${k.length} contatos dele?`)) return;
+      await apagar(c.tabela, x.id);
+      await recarrega(`${x.nome} apagado.`);
+    });
+
+    $('c-add').onclick = () => protege(async () => {
+      const valor = $('c-valor').value.trim();
+      if (!valor) return alerta('Digite o e-mail ou telefone.', 'erro');
+      const canal = $('c-canal').value;
+      if (canal === 'E-MAIL' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(valor))
+        return alerta('Esse e-mail não parece válido.', 'erro');
+      await criar('contato', {
+        dono_tipo: c.dono, dono_id: x.id, canal,
+        valor: canal === 'E-MAIL' ? valor.toLowerCase() : valor,
+        rotulo: $('c-rotulo').value.trim() || null,
+        origem_registro: 'sistema'
+      });
+      await recarrega('Contato adicionado.');
+      formParte(qual, c.lista().find(y => y.id === x.id));
+    });
+
+    document.querySelectorAll('[data-rmcontato]').forEach(b => b.onclick = () => protege(async () => {
+      await apagar('contato', b.dataset.rmcontato);
+      await recarrega('Contato removido.');
+      formParte(qual, c.lista().find(y => y.id === x.id));
+    }));
+  }
+}
+
+/* ==================================================================
+   GAVETA, AVISOS E SESSÃO
+   ================================================================== */
+function abreGaveta(titulo, html) {
+  $('gavT').innerHTML = `<h3 style="font-size:16px">${titulo}</h3>`;
+  $('gavC').innerHTML = html;
+  $('gav').classList.add('on');
+  $('veu').classList.add('on');
+}
+function fechaGaveta() {
+  $('gav').classList.remove('on');
+  $('veu').classList.remove('on');
+}
+
+function alerta(msg, tipo) {
+  $('aviso').innerHTML = `<div class="nota ${tipo === 'erro' ? '' : 'info'}"
+    style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">${esc(msg)}</div>`;
+  if (tipo !== 'erro') setTimeout(() => { $('aviso').innerHTML = ''; }, 4000);
+}
+
+/* Uma única porta para toda gravação: mostra o erro na tela em vez de
+   morrer no console, que é onde ninguém olha. */
+async function protege(fn) {
+  try { await fn(); }
+  catch (e) { alerta(e.message || String(e), 'erro'); }
+}
+
+async function recarrega(msg) {
+  await carrega();
+  desenha();
+  if (msg) alerta(msg);
+}
+
+function pintaSessao() {
+  $('sessao').innerHTML = logado()
+    ? `<span class="quem">${esc(sessao.email || 'conectado')}</span>
+       <button class="bt" id="sair">Sair</button>`
+    : `<button class="bt p" id="entrar">Entrar</button>`;
+
+  if (logado()) $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
+  else $('entrar').onclick = formLogin;
+}
+
+function formLogin() {
+  abreGaveta('Entrar', `
+    <div class="nota info" style="margin-bottom:18px">
+      A leitura desta tela é aberta. <b>Gravar exige login</b> — é o que impede
+      que alguém de fora altere ou apague a base.
+    </div>
+    <div class="campo"><label>E-mail</label>
+      <input class="inp" id="l-email" type="email" autocomplete="username"></div>
+    <div class="campo"><label>Senha</label>
+      <input class="inp" id="l-senha" type="password" autocomplete="current-password">
+      <div class="dica">Mínimo de 6 caracteres. Ninguém além de você vê esta senha —
+        nem eu, nem o administrador do sistema.</div></div>
+    <div class="acoes-form">
+      <button class="bt p" id="l-entrar">Entrar</button>
+      <button class="bt" id="l-criar">Criar conta</button>
+      <button class="bt" id="l-cancelar">Cancelar</button>
+    </div>`);
+
+  const credenciais = () => ({
+    email: $('l-email').value.trim(),
+    password: $('l-senha').value
+  });
+
+  const aplica = d => {
+    if (!d.access_token) {
+      alerta('Conta criada. Confirme pelo link que chegou no seu e-mail e depois entre.', 'info');
+      return fechaGaveta();
+    }
+    sessao = { access_token: d.access_token, refresh_token: d.refresh_token,
+               email: (d.user && d.user.email) || $('l-email').value.trim() };
+    SESSAO.gravar(sessao);
+    fechaGaveta(); pintaSessao(); desenha();
+    alerta('Conectado. Agora dá para gravar.');
+  };
+
+  $('l-entrar').onclick = () => protege(async () =>
+    aplica(await autenticar('token?grant_type=password', credenciais())));
+
+  $('l-criar').onclick = () => protege(async () => {
+    const c = credenciais();
+    if (!c.email || c.password.length < 6)
+      return alerta('Informe o e-mail e uma senha de ao menos 6 caracteres.', 'erro');
+    aplica(await autenticar('signup', c));
+  });
+
+  $('l-cancelar').onclick = fechaGaveta;
+}
+
+/* ==================================================================
+   ROTEADOR
+   ================================================================== */
+function desenha() {
+  $('nav').innerHTML = TELAS.map(t =>
+    `<button class="${t.id === aba ? 'on' : ''}" data-aba="${t.id}">${t.rotulo}</button>`).join('');
+  document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
+    aba = b.dataset.aba; busca = ''; $('q').value = ''; desenha();
+  });
+
+  TELAS.forEach(t => $('t-' + t.id).classList.toggle('on', t.id === aba));
+
+  if (aba === 'equipe') telaEquipe(); else telaParte(aba);
+
+  if (!logado()) {
+    $('aviso').innerHTML = `<div class="nota" style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">
+      <b>Somente leitura.</b> Para adicionar, editar ou apagar, entre pelo botão no alto à direita.
+      Sem login o banco recusa a gravação — é a trava que protege os dados de clientes.</div>`;
+  }
+
+  document.querySelectorAll('[data-novo]').forEach(b => b.onclick = () => {
+    const q = b.dataset.novo;
+    q === 'pessoa' ? formPessoa(null) : formParte(q, null);
+  });
+  document.querySelectorAll('[data-editar]').forEach(b => b.onclick = () => {
+    const q = b.dataset.editar, id = +b.dataset.id;
+    if (q === 'pessoa') formPessoa(PESSOAS.find(p => p.id === id));
+    else formParte(q, CFG[q].lista().find(x => x.id === id));
+  });
+}
+
+$('q').addEventListener('input', e => { busca = e.target.value; desenha(); });
+$('fx').onclick = fechaGaveta;
+$('veu').onclick = fechaGaveta;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
+
+(async function inicia() {
+  $('t-equipe').innerHTML = '<div class="carregando">Carregando…</div>';
+  pintaSessao();
+  try {
+    await carrega();
+    desenha();
+  } catch (e) {
+    $('t-equipe').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
+  }
+})();

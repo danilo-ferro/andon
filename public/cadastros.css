@@ -1,0 +1,61 @@
+/* ANDON · Cadastros — o que não cabe no andon.css compartilhado */
+
+.barra-acao{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.barra-acao .conta{margin-left:auto;font-size:12px;color:var(--txt-3);font-family:'JetBrains Mono',monospace}
+
+/* Cartão de registro — maior e mais legível que a ficha do kanban antigo,
+   que o Danilo apontou como pequena demais para trabalhar dentro. */
+.reg{background:linear-gradient(165deg,rgba(255,255,255,.055),rgba(255,255,255,.014));
+  border:1px solid var(--line);border-radius:12px;padding:14px 16px;cursor:pointer;
+  transition:.18s cubic-bezier(.16,1,.3,1);display:flex;gap:14px;align-items:center}
+.reg:hover{transform:translateY(-2px);border-color:var(--line-2);
+  box-shadow:0 12px 28px -12px rgba(0,0,0,.9)}
+.reg.off{opacity:.45}
+.reg .corpo{flex:1;min-width:0}
+.reg .nome{font-size:14px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.reg .meta{font-size:11.5px;color:var(--txt-3);display:flex;gap:12px;flex-wrap:wrap}
+.reg .meta b{color:var(--txt-2);font-weight:600}
+.lista{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+
+.pilula{font-size:10px;padding:3px 9px;border-radius:99px;background:var(--surf-2);
+  color:var(--txt-2);border:1px solid var(--line);white-space:nowrap}
+.pilula.adv{background:rgba(99,102,241,.16);color:#A5B4FC;border-color:rgba(99,102,241,.3)}
+.pilula.ope{background:rgba(6,182,212,.16);color:#67E8F9;border-color:rgba(6,182,212,.3)}
+.pilula.ges{background:rgba(163,230,53,.16);color:#BEF264;border-color:rgba(163,230,53,.3)}
+.pilula.off{background:rgba(148,163,184,.14);color:var(--txt-3)}
+
+/* Formulário na gaveta */
+.campo{margin-bottom:14px}
+.campo label{display:block;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--txt-3);font-family:'JetBrains Mono',monospace;margin-bottom:6px}
+.campo .dica{font-size:11px;color:var(--txt-3);margin-top:5px;line-height:1.5}
+.dupla{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:560px){.dupla{grid-template-columns:1fr}}
+.marca-linha{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.marca-linha label{display:flex;gap:7px;align-items:center;font-size:12.5px;
+  text-transform:none;letter-spacing:0;font-family:inherit;color:var(--txt-2);margin:0;cursor:pointer}
+.acoes-form{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.acoes-form .perigo{margin-left:auto;color:var(--bad);border-color:rgba(251,113,133,.3)}
+.acoes-form .perigo:hover{background:rgba(251,113,133,.12)}
+
+/* Contatos dentro da gaveta */
+.contato-linha{display:flex;gap:9px;align-items:center;padding:9px 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.contato-linha:last-of-type{border-bottom:none}
+.contato-linha .canal{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:5px;
+  font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.canal.email{background:rgba(6,182,212,.16);color:#67E8F9}
+.canal.tel{background:rgba(163,230,53,.16);color:#BEF264}
+.contato-linha .valor{flex:1;min-width:0;font-size:12.5px;word-break:break-all}
+.contato-linha .rot{font-size:11px;color:var(--txt-3)}
+.contato-linha .rm{color:var(--txt-3);font-size:16px;line-height:1;padding:3px 7px;border-radius:6px}
+.contato-linha .rm:hover{color:var(--bad);background:rgba(251,113,133,.12)}
+.novo-contato{display:grid;grid-template-columns:120px 1fr 130px auto;gap:8px;margin-top:12px;align-items:center}
+@media (max-width:560px){.novo-contato{grid-template-columns:1fr}}
+
+/* Sessão e avisos */
+#sessao{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--txt-2)}
+#sessao .quem{font-size:11.5px;color:var(--txt-3);max-width:190px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.vazio{text-align:center;padding:50px 20px;color:var(--txt-3);font-size:13px;line-height:1.7}
+.carregando{text-align:center;padding:50px;color:var(--txt-3);font-size:13px}

@@ -307,3 +307,9 @@ a{color:inherit}
   .medidor{gap:16px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* Cadastros vive em outra pagina; o link acompanha o visual dos botoes do menu. */
+.nav-link{padding:7px 14px;border-radius:9px;font-weight:500;color:var(--txt-2);
+  white-space:nowrap;transition:.16s;font-size:13px;text-decoration:none;
+  display:inline-flex;align-items:center}
+.nav-link:hover{color:var(--txt);background:var(--surf-1)}

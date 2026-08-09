@@ -15,11 +15,7 @@ const $ = id => document.getElementById(id);
 /* ---------- sessão ----------
    A leitura funciona com a chave pública. A escrita exige sessão: sem ela
    o banco recusa, e é isso que impede alguém de fora apagar a base. */
-const SESSAO = {
-  ler:   () => { try { return JSON.parse(localStorage.getItem('andon.sessao') || 'null'); } catch { return null; } },
-  gravar: s => localStorage.setItem('andon.sessao', JSON.stringify(s)),
-  limpar: () => localStorage.removeItem('andon.sessao')
-};
+const SESSAO = window.ANDON_SESSAO;
 let sessao = SESSAO.ler();
 const logado = () => !!(sessao && sessao.access_token);
 
@@ -36,7 +32,7 @@ async function api(caminho, opcoes) {
   if (r.status === 401 || r.status === 403) {
     throw new Error(logado()
       ? 'Sua sessão expirou. Entre de novo para salvar.'
-      : 'Só quem está logado pode gravar. Use o botão Entrar, no alto à direita.');
+      : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
   }
   if (!r.ok) throw new Error((await r.text()).slice(0, 200) || `erro ${r.status}`);
   return r.status === 204 ? null : r.json();
@@ -377,15 +373,15 @@ async function recarrega(msg, tipo) {
 
 function pintaSessao() {
   $('sessao').innerHTML = logado()
-    ? `<span class="quem">${esc(sessao.email || 'conectado')}</span>
+    ? `<span class="quem">${esc((sessao.nome || sessao.email) || 'conectado')}</span>
        <button class="bt" id="senha">Trocar senha</button>
        <button class="bt" id="sair">Sair</button>`
-    : `<button class="bt p" id="entrar">Entrar</button>`;
+    : `<a class="bt p" href="/entrar">Entrar</a>`;
 
   if (logado()) {
-    $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
+    $('sair').onclick = () => SESSAO.sair();
     $('senha').onclick = formSenha;
-  } else $('entrar').onclick = formLogin;
+  }
 }
 
 /* Quem recebeu senha provisoria troca por uma propria aqui. Usa a sessao
@@ -488,11 +484,6 @@ function desenha() {
 
   if (aba === 'equipe') telaEquipe(); else telaParte(aba);
 
-  if (!logado()) {
-    $('aviso').innerHTML = `<div class="nota" style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">
-      <b>Somente leitura.</b> Para adicionar, editar ou apagar, entre pelo botão no alto à direita.
-      Sem login o banco recusa a gravação — é a trava que protege os dados de clientes.</div>`;
-  }
 
   document.querySelectorAll('[data-novo]').forEach(b => b.onclick = () => {
     const q = b.dataset.novo;

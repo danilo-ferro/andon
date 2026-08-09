@@ -24,11 +24,7 @@ const ISO   = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const dias  = s => s ? Math.round((HOJE - new Date(s + 'T12:00:00')) / 864e5) : null;
 
 /* ---------- sessão e acesso ao banco ---------- */
-const SESSAO = {
-  ler:    () => { try { return JSON.parse(localStorage.getItem('andon.sessao') || 'null'); } catch { return null; } },
-  gravar: s  => localStorage.setItem('andon.sessao', JSON.stringify(s)),
-  limpar: () => localStorage.removeItem('andon.sessao')
-};
+const SESSAO = window.ANDON_SESSAO;
 let sessao = SESSAO.ler();
 const logado = () => !!(sessao && sessao.access_token);
 
@@ -38,7 +34,7 @@ async function api(caminho, opcoes) {
   const r = await fetch(`${SB.url}/rest/v1/${caminho}`, { ...opcoes, headers: h });
   if (r.status === 401 || r.status === 403) throw new Error(logado()
     ? 'Sua sessão expirou. Entre de novo para salvar.'
-    : 'Só quem está logado pode gravar. Use o botão Entrar, no alto à direita.');
+    : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
   if (!r.ok) throw new Error((await r.text()).slice(0, 240) || `erro ${r.status}`);
   return r.status === 204 ? null : r.json();
 }
@@ -765,11 +761,9 @@ async function protege(fn) {
 }
 
 function pintaSessao() {
-  $('sessao').innerHTML = logado()
-    ? `<span style="font-size:11.5px;color:var(--txt-3)">${esc(sessao.email || '')}</span>
-       <button class="bt" id="sair">Sair</button>`
-    : `<a class="bt p" href="/cadastros">Entrar</a>`;
-  if (logado()) $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
+  $('sessao').innerHTML = `<span class="quem">${esc((sessao && (sessao.nome || sessao.email)) || '')}</span>
+     <button class="bt" id="sair">Sair</button>`;
+  $('sair').onclick = () => SESSAO.sair();
 }
 
 const TELAS = [{ id: 'painel', rotulo: 'Painel de Gestão' },
@@ -791,9 +785,6 @@ function desenha() {
   else if (aba === 'kanban') telaKanban(l);
   else telaLista(l);
 
-  if (!logado()) $('aviso').innerHTML = `<div class="nota"
-    style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">
-    <b>Somente leitura.</b> Para criar ou alterar tratativas, entre pela tela de Cadastros.</div>`;
 
   document.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () =>
     abreForm(TRAT.find(t => t.id === +b.dataset.abrir)));

@@ -313,3 +313,9 @@ a{color:inherit}
   white-space:nowrap;transition:.16s;font-size:13px;text-decoration:none;
   display:inline-flex;align-items:center}
 .nav-link:hover{color:var(--txt);background:var(--surf-1)}
+
+/* O menu suspenso do <select> e desenhado pelo sistema, nao pela pagina: sem
+   cor propria, a lista saia com texto claro sobre fundo claro e os nomes
+   ficavam invisiveis. Precisa de cor solida — variavel translucida nao serve. */
+select option, select optgroup{background:#0C1119;color:#EAF0F8}
+select{background-color:#0C1119}

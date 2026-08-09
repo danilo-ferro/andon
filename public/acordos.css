@@ -10,7 +10,7 @@
 .filtro{display:flex;flex-direction:column;gap:4px;min-width:132px}
 .filtro > span{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
   color:var(--txt-3);font-family:'JetBrains Mono',monospace}
-.filtro select,.filtro input{background:var(--surf-1);border:1px solid var(--line);
+.filtro select,.filtro input{background:#0C1119;border:1px solid var(--line);
   border-radius:8px;padding:6px 9px;color:var(--txt);font-size:12.5px;width:100%}
 .filtro select:focus,.filtro input:focus{outline:none;border-color:var(--s4)}
 .filtros-linha .limpar{margin-left:auto;align-self:center}

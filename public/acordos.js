@@ -48,7 +48,7 @@ const mudar = (t, id, o) => api(`${t}?id=eq.${id}`, { method: 'PATCH', body: JSO
 
 /* ---------- estado ---------- */
 let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [], PARCELAS = [];
-let aba = 'kanban', busca = '';
+let aba = 'painel', busca = '';
 const F = { de: '', ate: '', advogado: '', operador: '', produto: '', estado: '',
             tipo: '', fase: '', status: '', canal: '', parado: '' };
 
@@ -215,6 +215,177 @@ function telaLista(l) {
       </tr>`;
     }).join('')}</tbody></table></div>
     ${ord.length > 600 ? `<div class="resumo-filtro">Mostrando 600 de ${ord.length}. Refine os filtros.</div>` : ''}`;
+}
+
+
+/* ==================================================================
+   PAINEL DE GESTÃO — tudo respeita os filtros do topo
+   ================================================================== */
+let recorte = 'operador';
+
+const RECORTES = [
+  { id: 'operador',  rotulo: 'Operador',  campo: t => t.operador },
+  { id: 'advogado',  rotulo: 'Advogado',  campo: t => t.advogado },
+  { id: 'produto',   rotulo: 'Produto',   campo: t => t.produto },
+  { id: 'canal',     rotulo: 'Contato',   campo: t => t.canal },
+  { id: 'fase',      rotulo: 'Fase',      campo: t => t.fase },
+  { id: 'tipo',      rotulo: 'Tipo',      campo: t => t.tipo },
+  { id: 'estado',    rotulo: 'UF',        campo: t => t.estado },
+  { id: 'reu',       rotulo: 'Réu',       campo: t => t.reu },
+  { id: 'escritorio',rotulo: 'Escritório',campo: t => t.escritorio_adverso }
+];
+
+function kpi(rot, val, obs, cor) {
+  return `<div class="kpi" style="--gl:${cor || 'rgba(99,102,241,.24)'}">
+    <div class="r">${rot}</div><div class="v">${val}</div>
+    ${obs ? `<div class="o">${obs}</div>` : ''}</div>`;
+}
+
+/* Faturamento é reconhecido na data do protocolo, não na assinatura da
+   minuta — foi a regra que o Danilo definiu. */
+const faturadas = l => l.filter(t => t.data_protocolo);
+
+function telaPainel(l) {
+  const fechadas   = l.filter(t => t.status === FECHADO);
+  const decididas  = l.filter(t => fase(t.status).conta_no_denominador);
+  const vivas      = l.filter(t => !fase(t.status).conta_no_denominador);
+  const fat        = faturadas(l);
+  const semProt    = fechadas.filter(t => !t.data_protocolo);
+  const taxa       = decididas.length ? fechadas.length / decididas.length * 100 : 0;
+  const valorFat   = soma(fat, t => t.valor);
+  const valorFech  = soma(fechadas, t => t.valor);
+  const ticket     = fechadas.length ? valorFech / fechadas.length : 0;
+  const aReceber   = PARCELAS.filter(p => !p.recebido &&
+                       l.some(t => t.id === p.tratativa_id));
+  const vencidas   = aReceber.filter(p => p.previsao && p.previsao < ISO(HOJE));
+
+  /* ---- evolução mês a mês ---- */
+  const meses = {};
+  const poe = (chave, campo, t) => {
+    const d = t[campo]; if (!d) return;
+    const m = d.slice(0, 7);
+    meses[m] = meses[m] || { m, abertas: 0, fechadas: 0, faturado: 0, valor: 0 };
+    if (chave === 'abertas') meses[m].abertas++;
+    else { meses[m].fechadas++; meses[m].valor += +t.valor || 0; }
+  };
+  l.forEach(t => poe('abertas', 'data', t));
+  fechadas.forEach(t => poe('fechadas', 'data_atualizacao', t));
+  fat.forEach(t => {
+    const m = t.data_protocolo.slice(0, 7);
+    meses[m] = meses[m] || { m, abertas: 0, fechadas: 0, faturado: 0, valor: 0 };
+    meses[m].faturado += +t.valor || 0;
+  });
+  const linha = Object.values(meses).sort((a, b) => a.m.localeCompare(b.m)).slice(-14);
+  const teto  = Math.max(...linha.map(x => Math.max(x.faturado, x.valor)), 1);
+  const rotMes = m => {
+    const N = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    return N[+m.slice(5, 7) - 1] + '/' + m.slice(2, 4);
+  };
+
+  /* ---- recorte com taxa de conversão ---- */
+  const R = RECORTES.find(x => x.id === recorte);
+  const mapa = new Map();
+  l.forEach(t => {
+    const k = R.campo(t) || '—';
+    const o = mapa.get(k) || { k, total: 0, dec: 0, ganhas: 0, valor: 0 };
+    o.total++;
+    if (fase(t.status).conta_no_denominador) o.dec++;
+    if (t.status === FECHADO) { o.ganhas++; o.valor += +t.valor || 0; }
+    mapa.set(k, o);
+  });
+  const linhas = [...mapa.values()]
+    .map(o => ({ ...o, taxa: o.dec ? o.ganhas / o.dec * 100 : 0 }))
+    .sort((a, b) => b.valor - a.valor || b.total - a.total).slice(0, 14);
+  const maxV = Math.max(...linhas.map(x => x.valor), 1);
+
+  $('t-painel').innerHTML = `
+    <div class="grade g4">
+      ${kpi('Faturamento do período', brl(valorFat),
+            `${fat.length} minutas protocoladas`, 'rgba(163,230,53,.28)')}
+      ${kpi('Acordos fechados', fechadas.length,
+            `${brl(valorFech)} negociados`, 'rgba(6,182,212,.28)')}
+      ${kpi('Ticket médio', brl(ticket),
+            fechadas.length ? `sobre ${fechadas.length} acordos` : 'sem acordo no período', 'rgba(168,85,247,.26)')}
+      ${kpi('Taxa de conversão', taxa.toFixed(1) + '%',
+            `${fechadas.length} de ${decididas.length} decididas`,
+            taxa >= 25 ? 'rgba(163,230,53,.3)' : 'rgba(245,158,11,.26)')}
+    </div>
+
+    <div class="grade g4">
+      ${kpi('Tratativas no período', l.length,
+            `${new Set(l.map(t => t.processo)).size} processos distintos`, 'rgba(99,102,241,.26)')}
+      ${kpi('Vivas na esteira', vivas.length,
+            'ainda podem virar acordo', 'rgba(20,184,166,.26)')}
+      ${kpi('Aguardando protocolo', semProt.length,
+            semProt.length ? `${brl(soma(semProt, t => t.valor))} fechados sem protocolar`
+                           : 'nenhuma minuta parada',
+            semProt.length ? 'rgba(245,158,11,.3)' : 'rgba(163,230,53,.26)')}
+      ${kpi('Parcelas a receber', aReceber.length,
+            vencidas.length ? `${vencidas.length} já vencidas · ${brl(soma(vencidas, p => p.valor))}`
+                            : `${brl(soma(aReceber, p => p.valor))} em dia`,
+            vencidas.length ? 'rgba(251,113,133,.3)' : 'rgba(163,230,53,.26)')}
+    </div>
+
+    <div class="cx" style="margin-bottom:14px">
+      <h3>Evolução mês a mês</h3>
+      <p class="sub">Barra cheia é o faturado (data do protocolo). A linha clara é o
+         valor dos acordos fechados no mês, que ainda pode não ter sido protocolado.</p>
+      ${linha.length ? `<div style="display:flex;gap:6px;align-items:flex-end;justify-content:flex-start">
+        ${linha.map(x => `<div style="flex:1;min-width:0;max-width:96px;display:flex;
+            flex-direction:column;align-items:center;gap:6px">
+          <div style="height:150px;width:100%;display:flex;align-items:flex-end;
+               justify-content:center;gap:3px">
+            <div title="Faturado ${brl2(x.faturado)}"
+                 style="width:38%;height:${x.faturado / teto * 100}%;min-height:${x.faturado ? 2 : 0}px;
+                 background:linear-gradient(180deg,#BEF264,#84CC16);border-radius:3px 3px 0 0;
+                 box-shadow:0 0 14px -2px #A3E635"></div>
+            <div title="Fechado ${brl2(x.valor)}"
+                 style="width:38%;height:${x.valor / teto * 100}%;min-height:${x.valor ? 2 : 0}px;
+                 background:linear-gradient(180deg,#22D3EE,#0891B2);border-radius:3px 3px 0 0;
+                 opacity:.75"></div>
+          </div>
+          <div style="font-size:10.5px;color:var(--txt-3)">${rotMes(x.m)}</div>
+          <div class="mono" style="font-size:9.5px;color:var(--txt-3)">${x.faturado ? kk(x.faturado) : ''}</div>
+          <div class="mono" style="font-size:9.5px;color:var(--txt-3)">${x.fechadas || ''}</div>
+        </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:16px;margin-top:14px;font-size:11.5px;color:var(--txt-2);flex-wrap:wrap">
+        <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;
+          background:#A3E635;margin-right:5px"></i>Faturado no mês</span>
+        <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;
+          background:#22D3EE;margin-right:5px"></i>Fechado no mês</span>
+        <span style="color:var(--txt-3)">o número embaixo é a quantidade de acordos</span>
+      </div>`
+      : '<div class="sem-contato">Sem movimento no período selecionado.</div>'}
+    </div>
+
+    <div class="cx">
+      <h3>Onde o acordo acontece</h3>
+      <p class="sub">Mesmo recorte, três leituras: volume, conversão e dinheiro.
+         A taxa só aparece onde houve ao menos um caso decidido.</p>
+      <div class="filtros" style="margin-bottom:14px">
+        ${RECORTES.map(x => `<button class="chip ${x.id === recorte ? 'on' : ''}"
+          data-recorte="${x.id}">${x.rotulo}</button>`).join('')}
+      </div>
+      ${linhas.length ? `<table class="tb">
+        <tr><th>${R.rotulo}</th><th class="n">Tratativas</th><th class="n">Fechados</th>
+            <th class="n">Taxa</th><th class="n">Valor</th></tr>
+        ${linhas.map(x => `<tr>
+          <td>${esc(x.k)}<div class="trilho"><i style="width:${x.valor / maxV * 100}%;
+            background:linear-gradient(90deg,#06B6D4,#A3E635)"></i></div></td>
+          <td class="n">${x.total}</td>
+          <td class="n">${x.ganhas}</td>
+          <td class="n" style="color:${!x.dec ? 'var(--txt-3)'
+            : x.taxa >= 25 ? 'var(--s6)' : x.taxa >= 12 ? 'var(--warn)' : 'var(--bad)'}">
+            ${x.dec ? x.taxa.toFixed(1) + '%' : '—'}</td>
+          <td class="n">${x.valor ? brl(x.valor) : '—'}</td>
+        </tr>`).join('')}
+      </table>` : '<div class="sem-contato">Nada no período selecionado.</div>'}
+    </div>`;
+
+  document.querySelectorAll('[data-recorte]').forEach(b => b.onclick = () => {
+    recorte = b.dataset.recorte; desenha();
+  });
 }
 
 /* ==================================================================
@@ -531,7 +702,9 @@ function pintaSessao() {
   if (logado()) $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
 }
 
-const TELAS = [{ id: 'kanban', rotulo: 'Esteira' }, { id: 'lista', rotulo: 'Tratativas' }];
+const TELAS = [{ id: 'painel', rotulo: 'Painel de Gestão' },
+               { id: 'kanban', rotulo: 'Esteira' },
+               { id: 'lista',  rotulo: 'Tratativas' }];
 
 function desenha() {
   $('nav').innerHTML = TELAS.map(t =>
@@ -542,7 +715,9 @@ function desenha() {
 
   const l = filtradas();
   pintaFiltros(); pintaResumo(l);
-  aba === 'kanban' ? telaKanban(l) : telaLista(l);
+  if (aba === 'painel') telaPainel(l);
+  else if (aba === 'kanban') telaKanban(l);
+  else telaLista(l);
 
   if (!logado()) $('aviso').innerHTML = `<div class="nota"
     style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">
@@ -558,7 +733,7 @@ $('veu').onclick = fechaGaveta;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
 
 (async function inicia() {
-  $('t-kanban').innerHTML = '<div class="carregando">Carregando…</div>';
+  $('t-painel').innerHTML = '<div class="carregando">Carregando…</div>';
   pintaSessao();
   try {
     await carrega();
@@ -569,6 +744,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(
     bt.onclick = () => abreForm(null);
     $('nav').appendChild(bt);
   } catch (e) {
-    $('t-kanban').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
+    $('t-painel').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
   }
 })();

@@ -378,11 +378,50 @@ async function recarrega(msg, tipo) {
 function pintaSessao() {
   $('sessao').innerHTML = logado()
     ? `<span class="quem">${esc(sessao.email || 'conectado')}</span>
+       <button class="bt" id="senha">Trocar senha</button>
        <button class="bt" id="sair">Sair</button>`
     : `<button class="bt p" id="entrar">Entrar</button>`;
 
-  if (logado()) $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
-  else $('entrar').onclick = formLogin;
+  if (logado()) {
+    $('sair').onclick = () => { SESSAO.limpar(); sessao = null; pintaSessao(); desenha(); };
+    $('senha').onclick = formSenha;
+  } else $('entrar').onclick = formLogin;
+}
+
+/* Quem recebeu senha provisoria troca por uma propria aqui. Usa a sessao
+   aberta, entao nao depende de e-mail chegar — o que costuma travar equipe. */
+function formSenha() {
+  abreGaveta('Trocar senha', `
+    <div class="nota info" style="margin-bottom:18px">
+      A nova senha vale na hora. Se voce recebeu uma senha provisoria,
+      troque agora — ela e conhecida por quem a distribuiu.
+    </div>
+    <div class="campo"><label>Nova senha</label>
+      <input class="inp" id="s-nova" type="password" autocomplete="new-password"></div>
+    <div class="campo"><label>Repita a nova senha</label>
+      <input class="inp" id="s-rep" type="password" autocomplete="new-password">
+      <div class="dica">Minimo de 8 caracteres.</div></div>
+    <div class="acoes-form">
+      <button class="bt p" id="s-salvar">Trocar</button>
+      <button class="bt" id="s-cancelar">Cancelar</button>
+    </div>`);
+
+  $('s-salvar').onclick = () => protege(async () => {
+    const nova = $('s-nova').value, rep = $('s-rep').value;
+    if (nova.length < 8) return alerta('A senha precisa ter ao menos 8 caracteres.', 'erro');
+    if (nova !== rep)    return alerta('As duas senhas nao sao iguais.', 'erro');
+    const r = await fetch(`${SB.url}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { apikey: SB.key, 'Content-Type': 'application/json',
+                 Authorization: 'Bearer ' + sessao.access_token },
+      body: JSON.stringify({ password: nova })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.msg || d.message || `erro ${r.status}`);
+    alerta('Senha trocada. Use a nova no proximo acesso.', 'ok');
+    setTimeout(fechaGaveta, 1200);
+  });
+  $('s-cancelar').onclick = fechaGaveta;
 }
 
 function formLogin() {

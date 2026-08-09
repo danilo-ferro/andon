@@ -184,14 +184,14 @@ function formPessoa(p) {
       observacoes: $('f-obs').value.trim() || null
     };
     p.id ? await mudar('pessoa', p.id, dados) : await criar('pessoa', dados);
-    await recarrega(`${nome} salvo.`);
+    await recarrega(`${nome} salvo.`, 'ok');
   });
 
   $('f-cancelar').onclick = fechaGaveta;
   if (p.id) $('f-apagar').onclick = () => protege(async () => {
     if (!confirm(`Apagar ${p.nome}?\n\nSe esta pessoa tem histórico, prefira desmarcar "Ativo" — apagar pode deixar filtros antigos sem dono.`)) return;
     await apagar('pessoa', p.id);
-    await recarrega(`${p.nome} apagado.`);
+    await recarrega(`${p.nome} apagado.`, 'ok');
   });
 }
 
@@ -298,7 +298,7 @@ function formParte(qual, x) {
     const dados = { nome, observacoes: $('f-obs').value.trim() || null };
     if (qual === 'reus') dados.documento = ($('f-doc').value || '').trim() || null;
     const salvo = x.id ? await mudar(c.tabela, x.id, dados) : await criar(c.tabela, dados);
-    await recarrega(`${nome} salvo.`);
+    await recarrega(`${nome} salvo.`, 'ok');
     const id = x.id || (salvo && salvo[0] && salvo[0].id);
     if (id) formParte(qual, c.lista().find(y => y.id === id));
   });
@@ -309,7 +309,7 @@ function formParte(qual, x) {
     $('f-apagar').onclick = () => protege(async () => {
       if (!confirm(`Apagar ${x.nome} e os ${k.length} contatos dele?`)) return;
       await apagar(c.tabela, x.id);
-      await recarrega(`${x.nome} apagado.`);
+      await recarrega(`${x.nome} apagado.`, 'ok');
     });
 
     $('c-add').onclick = () => protege(async () => {
@@ -324,13 +324,13 @@ function formParte(qual, x) {
         rotulo: $('c-rotulo').value.trim() || null,
         origem_registro: 'sistema'
       });
-      await recarrega('Contato adicionado.');
+      await recarrega('Contato adicionado.', 'ok');
       formParte(qual, c.lista().find(y => y.id === x.id));
     });
 
     document.querySelectorAll('[data-rmcontato]').forEach(b => b.onclick = () => protege(async () => {
       await apagar('contato', b.dataset.rmcontato);
-      await recarrega('Contato removido.');
+      await recarrega('Contato removido.', 'ok');
       formParte(qual, c.lista().find(y => y.id === x.id));
     }));
   }
@@ -341,7 +341,7 @@ function formParte(qual, x) {
    ================================================================== */
 function abreGaveta(titulo, html) {
   $('gavT').innerHTML = `<h3 style="font-size:16px">${titulo}</h3>`;
-  $('gavC').innerHTML = html;
+  $('gavC').innerHTML = `<div id="recado"></div>` + html;
   $('gav').classList.add('on');
   $('veu').classList.add('on');
 }
@@ -350,10 +350,16 @@ function fechaGaveta() {
   $('veu').classList.remove('on');
 }
 
+/* Mensagem aparece dentro da gaveta quando a gaveta esta aberta: o aviso no
+   topo da pagina passa despercebido por quem esta olhando o formulario.
+   Erro e instrucao nao somem sozinhos — so o "salvo com sucesso" some. */
 function alerta(msg, tipo) {
+  const html = `<div class="nota ${tipo === 'erro' ? '' : 'info'}">${esc(msg)}</div>`;
+  const naGaveta = $('gav').classList.contains('on') && $('recado');
+  if (naGaveta) { $('recado').innerHTML = html; return; }
   $('aviso').innerHTML = `<div class="nota ${tipo === 'erro' ? '' : 'info'}"
     style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">${esc(msg)}</div>`;
-  if (tipo !== 'erro') setTimeout(() => { $('aviso').innerHTML = ''; }, 4000);
+  if (tipo === 'ok') setTimeout(() => { $('aviso').innerHTML = ''; }, 4000);
 }
 
 /* Uma única porta para toda gravação: mostra o erro na tela em vez de
@@ -363,10 +369,10 @@ async function protege(fn) {
   catch (e) { alerta(e.message || String(e), 'erro'); }
 }
 
-async function recarrega(msg) {
+async function recarrega(msg, tipo) {
   await carrega();
   desenha();
-  if (msg) alerta(msg);
+  if (msg) alerta(msg, tipo || 'info');
 }
 
 function pintaSessao() {
@@ -404,14 +410,16 @@ function formLogin() {
 
   const aplica = d => {
     if (!d.access_token) {
-      alerta('Conta criada. Confirme pelo link que chegou no seu e-mail e depois entre.', 'info');
-      return fechaGaveta();
+      alerta('Conta criada, mas ainda falta confirmar. Procure o e-mail do Supabase '
+           + '(veja o spam), clique no link de confirmação e volte aqui para entrar. '
+           + 'Se o e-mail não chegar, me avise que eu confirmo a conta por dentro.', 'info');
+      return;
     }
     sessao = { access_token: d.access_token, refresh_token: d.refresh_token,
                email: (d.user && d.user.email) || $('l-email').value.trim() };
     SESSAO.gravar(sessao);
     fechaGaveta(); pintaSessao(); desenha();
-    alerta('Conectado. Agora dá para gravar.');
+    alerta('Conectado. Agora dá para gravar.', 'ok');
   };
 
   $('l-entrar').onclick = () => protege(async () =>

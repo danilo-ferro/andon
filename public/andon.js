@@ -1226,9 +1226,13 @@ const TELAS=[['painel','Painel'],['acordos','Acordos'],['execucao','Execução']
              ['financeiro','Financeiro'],['busca','Busca'],['ajustes','Ajustes']];
 let atual='painel';
 function nav(){
+  // Acordos e Cadastros vivem em paginas proprias. Antes havia um botao
+  // 'Acordos' aqui e um link 'Esteira de acordos' ao lado, apontando para
+  // coisas diferentes com nomes parecidos — confuso de proposito nenhum.
+  const FORA = {acordos:'/acordos'};
   document.getElementById('nav').innerHTML = TELAS.map(([id,r])=>
-    `<button class="${id===atual?'on':''}" data-t="${id}">${r}</button>`).join('')
-    + `<a class="nav-link" href="/acordos">Esteira de acordos</a>`
+    FORA[id] ? `<a class="nav-link" href="${FORA[id]}">${r}</a>`
+             : `<button class="${id===atual?'on':''}" data-t="${id}">${r}</button>`).join('')
     + `<a class="nav-link" href="/cadastros">Cadastros</a>`;
   document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>vai(b.dataset.t));
 }

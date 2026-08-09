@@ -43,14 +43,50 @@ async function api(caminho, opcoes) {
   return r.status === 204 ? null : r.json();
 }
 const ler   = (t, q)    => api(`${t}?${q || 'select=*'}`);
+
+/* O PostgREST corta em 1000 linhas por resposta, sem avisar. Sem paginar,
+   1.407 tratativas apareciam como 1.000 e as contas saiam erradas. */
+async function lerTudo(t, extra) {
+  const out = []; let de = 0;
+  for (;;) {
+    const l = await api(`${t}?select=*&order=id.asc&offset=${de}&limit=1000${extra || ''}`);
+    out.push(...l);
+    if (l.length < 1000) break;
+    de += 1000;
+  }
+  return out;
+}
 const criar = (t, o)    => api(t, { method: 'POST', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
 const mudar = (t, id, o) => api(`${t}?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
 
 /* ---------- estado ---------- */
 let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [], PARCELAS = [];
 let aba = 'painel', busca = '';
-const F = { de: '', ate: '', advogado: '', operador: '', produto: '', estado: '',
+const F = { periodo: '', de: '', ate: '', advogado: '', operador: '', produto: '', estado: '',
             tipo: '', fase: '', status: '', canal: '', parado: '' };
+
+const NOME_MES = ['janeiro','fevereiro','março','abril','maio','junho',
+                  'julho','agosto','setembro','outubro','novembro','dezembro'];
+
+/* Traduz a escolha de periodo em um intervalo de datas. Vazio = tudo, que e
+   o estado inicial: a tela abre mostrando o escritorio inteiro. */
+function intervalo() {
+  if (F.periodo === 'custom') return [F.de, F.ate];
+  if (/^\d{4}-\d{2}$/.test(F.periodo)) {
+    const [a, m] = F.periodo.split('-').map(Number);
+    return [`${F.periodo}-01`, ISO(new Date(a, m, 0))];
+  }
+  return ['', ''];
+}
+
+/* Meses que existem de fato nos dados, do mais recente para o mais antigo. */
+function mesesDisponiveis() {
+  const s = new Set();
+  TRAT.forEach(t => {
+    [t.data, t.data_atualizacao, t.data_protocolo].forEach(d => { if (d) s.add(d.slice(0, 7)); });
+  });
+  return [...s].sort().reverse().slice(0, 36);
+}
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR',
              'PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -62,13 +98,13 @@ const FECHADO = 'ACORDO FECHADO';
 
 async function carrega() {
   const [t, p, r, e, c, f, pc] = await Promise.all([
-    ler('tratativa', 'select=*&order=data.desc.nullslast&limit=5000'),
+    lerTudo('tratativa'),
     ler('pessoa', 'select=*&order=nome.asc'),
     ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
     ler('escritorio_adverso', 'select=id,nome,chave&order=nome.asc'),
-    ler('contato', 'select=*'),
+    lerTudo('contato'),
     ler('config_fase', 'select=*&esteira=eq.acordo&order=ordem.asc'),
-    ler('acordo_parcela', 'select=*&order=numero.asc')
+    lerTudo('acordo_parcela')
   ]);
   TRAT = t; PESSOAS = p; REUS = r; ESCRS = e; CONTATOS = c; FASES = f; PARCELAS = pc;
 }
@@ -82,8 +118,14 @@ const parcelasDe = id => PARCELAS.filter(p => p.tratativa_id === id);
 function filtradas() {
   const b = busca.trim().toLowerCase();
   return TRAT.filter(t => {
-    if (F.de   && (!t.data || t.data < F.de))  return false;
-    if (F.ate  && (!t.data || t.data > F.ate)) return false;
+    const [de, ate] = intervalo();
+    if (de || ate) {
+      // Uma tratativa entra no periodo se qualquer marco dela caiu ali:
+      // abertura, ultima atualizacao ou protocolo. Filtrar so pela abertura
+      // esconderia acordo antigo que fechou e faturou dentro do mes.
+      const marcos = [t.data, t.data_atualizacao, t.data_protocolo].filter(Boolean);
+      if (!marcos.some(d => (!de || d >= de) && (!ate || d <= ate))) return false;
+    }
     if (F.advogado && t.advogado !== F.advogado) return false;
     if (F.operador && t.operador !== F.operador) return false;
     if (F.produto  && t.produto  !== F.produto)  return false;
@@ -112,9 +154,21 @@ function pintaFiltros() {
       <select data-f="${id}">${op('', vazio || 'todos', atual)}
         ${itens.map(i => op(i.v ?? i, i.l ?? i, atual)).join('')}</select></label>`;
 
+  const meses = mesesDisponiveis().map(m => ({
+    v: m, l: NOME_MES[+m.slice(5, 7) - 1] + ' de ' + m.slice(0, 4) }));
+  const custom = F.periodo === 'custom';
+
   $('filtros').innerHTML = `<div class="filtros-cx"><div class="filtros-linha">
-      <label class="filtro"><span>de</span><input type="date" data-f="de" value="${F.de}"></label>
-      <label class="filtro"><span>até</span><input type="date" data-f="ate" value="${F.ate}"></label>
+      <label class="filtro periodo"><span>período</span>
+        <select data-f="periodo">
+          ${op('', 'todo o período', F.periodo)}
+          ${op('custom', 'intervalo personalizado…', F.periodo)}
+          ${meses.map(m => op(m.v, m.l, F.periodo)).join('')}
+        </select></label>
+      <label class="filtro ${custom ? '' : 'oculto'}"><span>de</span>
+        <input type="date" data-f="de" value="${F.de}"></label>
+      <label class="filtro ${custom ? '' : 'oculto'}"><span>até</span>
+        <input type="date" data-f="ate" value="${F.ate}"></label>
       ${sel('advogado', 'advogado', advogados().map(p => p.nome), F.advogado)}
       ${sel('operador', 'operador', operadores().map(p => p.nome), F.operador)}
       ${sel('produto', 'produto/tese', PRODUTOS, F.produto)}
@@ -156,17 +210,33 @@ function pintaResumo(l) {
 function cardT(t) {
   const d = dias(t.data_atualizacao || t.data);
   const cls = d === null ? '' : d > 45 ? 'r' : d > 20 ? 'a' : 'v';
+  const primeiroNome = n => String(n || '').split(' ')[0];
   return `<article class="card-t" data-abrir="${t.id}" style="--c:${fase(t.status).cor}">
     <div class="proc"><span>${esc(t.processo)}</span>
       ${d !== null ? `<span class="tempo ${cls}">${d}d</span>` : ''}</div>
-    <div class="partes">${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</div>
-    <div class="contra">× ${esc(t.reu || '—')}</div>
+
+    <div class="partes">${esc(t.autor || 'Sem autor informado')}</div>
+    <div class="contra"><i>×</i><span>${esc(t.reu || 'sem réu informado')}</span></div>
+
     ${t.valor ? `<div class="cif">${brl2(t.valor)}</div>` : ''}
+
+    ${t.escritorio_adverso ? `<div class="linha-dado">escritório <b>${esc(t.escritorio_adverso)}</b></div>` : ''}
+    <div class="linha-dado">advogado <b>${esc(t.advogado || '—')}</b></div>
+    ${t.data_protocolo ? `<div class="linha-dado">protocolado <b>${dtb(t.data_protocolo)}</b></div>`
+      : t.data ? `<div class="linha-dado">1ª tentativa <b>${dtb(t.data)}</b></div>` : ''}
+    ${t.previsao && !t.recebido ? `<div class="linha-dado">previsão <b>${dtb(t.previsao)}</b></div>` : ''}
+
     <div class="selos">
+      ${t.tipo ? `<span class="pilula">${esc(t.tipo)}</span>` : ''}
       ${t.fase ? `<span class="pilula">${esc(t.fase)}</span>` : ''}
       ${t.estado ? `<span class="pilula">${esc(t.estado)}</span>` : ''}
+      ${t.produto ? `<span class="pilula">${esc(t.produto)}</span>` : ''}
       ${t.canal ? `<span class="pilula">${esc(t.canal)}</span>` : ''}
-      ${t.operador ? `<span class="pilula ope">${esc(t.operador.split(' ')[0])}</span>` : ''}
+    </div>
+
+    <div class="rodape">
+      <span class="op">${t.operador ? esc(t.operador) : '<span style="color:var(--txt-3)">sem operador</span>'}</span>
+      ${t.recebido ? '<span class="pilula ges">recebido</span>' : ''}
     </div>
   </article>`;
 }
@@ -709,7 +779,9 @@ const TELAS = [{ id: 'painel', rotulo: 'Painel de Gestão' },
 function desenha() {
   $('nav').innerHTML = TELAS.map(t =>
     `<button class="${t.id === aba ? 'on' : ''}" data-aba="${t.id}">${t.rotulo}</button>`).join('')
-    + `<a class="nav-link" href="/cadastros">Cadastros</a>`;
+    + `<a class="nav-link" href="/cadastros">Cadastros</a>`
+    + `<button class="bt p" id="nova" style="margin-left:10px">+ Nova tratativa</button>`;
+  $('nova').onclick = () => abreForm(null);
   document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => { aba = b.dataset.aba; desenha(); });
   TELAS.forEach(t => $('t-' + t.id).classList.toggle('on', t.id === aba));
 
@@ -738,11 +810,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(
   try {
     await carrega();
     desenha();
-    const bt = document.createElement('button');
-    bt.className = 'bt p'; bt.textContent = '+ Nova tratativa';
-    bt.style.marginLeft = '10px';
-    bt.onclick = () => abreForm(null);
-    $('nav').appendChild(bt);
   } catch (e) {
     $('t-painel').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
   }

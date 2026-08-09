@@ -17,11 +17,15 @@ const DONO = 'danilo-ferro';
 const NOME = 'andon';
 const RAMOS = ['main', 'master'];
 
+// so_planilha: a limpeza apaga apenas o que veio de /dados e preserva o que
+// a equipe criou pela tela. Sem isso, o primeiro push depois de a equipe
+// comecar a trabalhar apagaria o trabalho dela.
 const FONTES = [
-  { arquivo: 'execucao.psv',  rpc: 'carrega_execucao',  tabela: 'execucao'          },
-  { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa'         },
-  { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado'   },
-  { arquivo: 'advbox.psv',    rpc: 'carrega_advbox',    tabela: 'advbox_lancamento' },
+  { arquivo: 'execucao.psv',  rpc: 'carrega_execucao',  tabela: 'execucao',          so_planilha: true  },
+  { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa',         so_planilha: true  },
+  { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado',   so_planilha: true  },
+  { arquivo: 'advbox.psv',    rpc: 'carrega_advbox',    tabela: 'advbox_lancamento', so_planilha: false },
+  { arquivo: 'contato.psv',   rpc: 'carrega_contato',   tabela: 'contato',           so_planilha: true  },
 ];
 
 const LOTE = 250;
@@ -77,7 +81,10 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const { error: eDel } = await db.from(f.tabela).delete().neq('id', -1);
+      const limpeza = f.so_planilha
+        ? db.from(f.tabela).delete().eq('origem_registro', 'planilha')
+        : db.from(f.tabela).delete().neq('id', -1);
+      const { error: eDel } = await limpeza;
       if (eDel) {
         relatorio.push({ tabela: f.tabela, ok: false, erro: 'limpeza: ' + eDel.message });
         continue;

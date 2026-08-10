@@ -311,6 +311,38 @@ function kpi(rot, val, obs, cor) {
    minuta — foi a regra que o Danilo definiu. */
 const faturadas = l => l.filter(t => t.data_protocolo);
 
+/* Quando ha busca ou um recorte estreito, o gestor quer chegar no caso, nao
+   so no numero. Sem isto ele tinha que trocar de aba para abrir a tratativa
+   que acabou de procurar. */
+function resultadosDaBusca(l) {
+  const procurando = busca.trim().length > 0;
+  if (!procurando && l.length > 40) return '';
+  if (!l.length) return '';
+  const ord = [...l].sort((a, b) => (b.data_atualizacao || b.data || '')
+    .localeCompare(a.data_atualizacao || a.data || ''));
+  return `<div class="cx" style="margin-bottom:14px">
+    <h3>${procurando ? `Encontradas — ${l.length}` : `Tratativas do recorte — ${l.length}`}</h3>
+    <p class="sub">${procurando
+      ? `Resultado de <b>${esc(busca.trim())}</b>. Clique para abrir.`
+      : 'Poucos casos no filtro atual, então listo todos aqui. Clique para abrir.'}</p>
+    <div class="tb-rolagem"><table class="tb-lista">
+      <thead><tr><th>Processo</th><th>Autor</th><th>Réu</th><th>Status</th>
+        <th>Operador</th><th>Data</th><th class="n">Valor</th></tr></thead>
+      <tbody>${ord.slice(0, 60).map(t => `<tr data-abrir="${t.id}">
+        <td class="mono">${esc(t.processo)}</td>
+        <td>${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
+        <td>${esc(t.reu || '—')}</td>
+        <td><span class="marcador"><i style="background:${fase(t.status).cor};
+          color:${fase(t.status).cor}"></i>${esc(fase(t.status).nome)}</span></td>
+        <td>${esc(t.operador || '—')}</td>
+        <td class="mono">${dtb(t.data_atualizacao || t.data)}</td>
+        <td class="n">${t.valor ? brl2(t.valor) : '—'}</td>
+      </tr>`).join('')}</tbody></table></div>
+    ${ord.length > 60 ? `<div class="resumo-filtro">Mostrando 60 de ${ord.length}.
+      Refine a busca ou use a aba Tratativas.</div>` : ''}
+  </div>`;
+}
+
 function telaPainel(l) {
   const fechadas   = l.filter(t => t.status === FECHADO);
   const decididas  = l.filter(t => fase(t.status).conta_no_denominador);
@@ -395,6 +427,8 @@ function telaPainel(l) {
                             : `${brl(soma(aReceber, p => p.valor))} em dia`,
             vencidas.length ? 'rgba(251,113,133,.3)' : 'rgba(163,230,53,.26)')}
     </div>
+
+    ${resultadosDaBusca(l)}
 
     <div class="cx" style="margin-bottom:14px">
       <h3>Evolução mês a mês</h3>

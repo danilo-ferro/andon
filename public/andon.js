@@ -62,7 +62,7 @@ async function sbTudo(tabela, ordem){
 
 async function carrega(){
   const [ex,tr,fa,tb,ar,am,gr,fs,mt,pr,vp,vpr,vc,vcp,vpar,vrm] = await Promise.all([
-    sbTudo('execucao'), sbTudo('tratativa'), sbTudo('acordo_faturado'),
+    sbTudo('execucao'), sbTudo('tratativa'), sbTudo('tratativa'),
     sbTudo('acordo_trabalhista'),
     sb('advbox_resumo',{ano:'eq.'+ANO}), sb('advbox_mes'),
     sb('config_grupo',{order:'ordem.asc'}), sb('config_fase',{order:'ordem.asc'}),
@@ -88,10 +88,14 @@ async function carrega(){
     autor:r.autor, reu:r.reu, escr:r.escritorio_adverso, canal:r.canal, data:r.data,
     st:r.status, obs:r.observacoes||''}));
 
-  FAT = fa.map(r=>({id:'F'+r.id, orig:r.origem, fase:r.fase, adv:r.advogado, prod:r.produto,
-    autor:r.autor, reu:r.reu, proc:r.processo, dmin:r.data_minuta, valor:+r.valor,
-    prot:r.protocolado, dprot:r.data_protocolo, uf:r.estado, prev:r.previsao,
-    rec:r.recebido, drec:r.data_recebimento, obs:r.observacoes||''}));
+  // Os acordos vem de tratativa, nao mais de acordo_faturado: e la que a
+  // equipe trabalha, e o painel precisa refletir o que ela faz hoje. A tabela
+  // antiga virou so o insumo da carga, sincronizado no banco.
+  FAT = fa.filter(r=>r.status==='ACORDO FECHADO')
+    .map(r=>({id:'F'+r.id, orig:r.tipo, fase:r.fase, adv:r.advogado, prod:r.produto,
+      autor:r.autor, reu:r.reu, proc:r.processo, dmin:r.data_minuta_assinada, valor:+r.valor,
+      prot:r.data_protocolo?'SIM':null, dprot:r.data_protocolo, uf:r.estado, prev:r.previsao,
+      rec:r.recebido?'SIM':null, drec:r.data_recebimento, obs:r.observacoes||''}));
 
   TRAB = tb.map(r=>({id:'B'+r.id, autor:r.autor, reu:r.reu, proc:r.processo, data:r.data,
     valor:+r.valor, prev:r.previsao, rec:r.recebido, drec:r.data_recebimento}));

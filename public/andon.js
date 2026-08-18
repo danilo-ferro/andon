@@ -37,11 +37,20 @@ let EXEC=[], TRAT=[], FAT=[], TRAB=[], ADVBOX={}, ADVMES=[];
    banco. Onde existe view, a tela lê a view e não refaz a conta. */
 let VPAINEL=null, VPREVISAO=[], VCONC=[], VCONCPROC=[], VCONCPAR=[], VRECMES=[];
 
+/* A leitura do banco exige sessao. A chave publicavel sozinha nao le mais
+   nada — e o que impede quem achar o repositorio de ler a base inteira.
+   Toda chamada precisa levar o token de quem entrou. */
+function autorizacao(){
+  const s = window.ANDON_SESSAO && window.ANDON_SESSAO.ler();
+  return 'Bearer ' + ((s && s.access_token) || SB.key);
+}
+
 async function sb(tabela, params){
   const qs = new URLSearchParams({select:'*', ...(params||{})}).toString();
   const r = await fetch(`${SB.url}/rest/v1/${tabela}?${qs}`, {
-    headers:{apikey:SB.key, Authorization:'Bearer '+SB.key, Prefer:'count=exact'}
+    headers:{apikey:SB.key, Authorization:autorizacao(), Prefer:'count=exact'}
   });
+  if(r.status===401||r.status===403) throw new Error('SESSAO');
   if(!r.ok) throw new Error(tabela+': '+r.status+' '+(await r.text()).slice(0,120));
   return r.json();
 }
@@ -52,7 +61,8 @@ async function sbTudo(tabela, ordem){
     const qs = new URLSearchParams({select:'*', order:ordem||'id.asc',
       offset:String(de), limit:'1000'}).toString();
     const r = await fetch(`${SB.url}/rest/v1/${tabela}?${qs}`, {
-      headers:{apikey:SB.key, Authorization:'Bearer '+SB.key}});
+      headers:{apikey:SB.key, Authorization:autorizacao()}});
+    if(r.status===401||r.status===403) throw new Error('SESSAO');
     if(!r.ok) throw new Error(tabela+': '+r.status);
     const l = await r.json(); out.push(...l);
     if(l.length<1000) break; de += 1000;
@@ -1311,14 +1321,30 @@ function carregando(msg, erro){
     await carrega();
     calcula();
     if(!EXEC.length && !TRAT.length){
+      // Quando o RLS barra, o banco responde 200 com zero linhas — nao um
+      // erro. Sem distinguir os dois casos, falta de permissao aparece como
+      // "banco vazio" e manda a pessoa recarregar dados que ja estao la.
+      const s = window.ANDON_SESSAO && window.ANDON_SESSAO.ler();
+      if(!s || !s.access_token){
+        carregando('Sua sessão terminou',
+          'A leitura do banco exige login. Vou te levar para a tela de entrada.');
+        setTimeout(()=>location.replace('/entrar?volta='+encodeURIComponent(location.pathname)),1200);
+        return;
+      }
       carregando('Banco conectado, mas ainda vazio',
         'O esquema está no ar e a conexão funciona — só faltam as linhas. '+
         'A carga é automática: abra a aba <b>Actions</b> do repositório no GitHub e rode '+
-        '<b>Atualizar banco</b>. Em uns 20 segundos recarregue esta página.');
+        '<b>Atualizar banco</b>. Em uns 20 segundos recarregue esta página.<br><br>'+
+        'Se você tem certeza de que há dados, saia e entre de novo: '+
+        'uma sessão vencida também devolve tela vazia.');
       return;
     }
     desenha();
   }catch(e){
+    if(String(e.message)==='SESSAO'){
+      carregando('Sua sessão terminou','Levando você para a tela de entrada…');
+      return location.replace('/entrar?volta='+encodeURIComponent(location.pathname));
+    }
     carregando('Não consegui falar com o banco',
       esc(e.message)+'<br><br>Confira se o projeto Supabase está ativo e se as políticas de leitura estão valendo.');
   }

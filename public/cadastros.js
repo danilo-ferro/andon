@@ -56,13 +56,17 @@ async function autenticar(caminho, corpo) {
 
 /* ---------- estado ---------- */
 let PESSOAS = [], REUS = [], ESCRITORIOS = [], CONTATOS = [];
-let aba = 'equipe', busca = '';
+let aba = '', busca = '';   // definida abaixo, depois de saber os papeis
 
+/* Equipe é onde se define quem é gestor. Deixar isso à mão de qualquer
+   operador seria dar a ele o próprio acesso ao painel do escritório. */
+const ehGestor = () => ((sessao && sessao.papeis) || []).includes('gestor');
 const TELAS = [
-  { id: 'equipe',      rotulo: 'Equipe' },
+  { id: 'equipe',      rotulo: 'Equipe', soGestor: true },
   { id: 'reus',        rotulo: 'Réus' },
   { id: 'escritorios', rotulo: 'Escritórios' }
-];
+].filter(t => !t.soGestor || ehGestor());
+aba = TELAS[0].id;
 
 async function carrega() {
   const [p, r, e, c] = await Promise.all([
@@ -502,12 +506,12 @@ $('veu').onclick = fechaGaveta;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
 
 (async function inicia() {
-  $('t-equipe').innerHTML = '<div class="carregando">Carregando…</div>';
+  $('t-' + aba).innerHTML = '<div class="carregando">Carregando…</div>';
   pintaSessao();
   try {
     await carrega();
     desenha();
   } catch (e) {
-    $('t-equipe').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
+    $('t-' + aba).innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
   }
 })();

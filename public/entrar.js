@@ -21,11 +21,30 @@ function recado(msg, tipo) {
     ? `<div class="nota ${tipo === 'erro' ? '' : 'info'}">${esc(msg)}</div>` : '';
 }
 
-function destino() {
-  const v = new URLSearchParams(location.search).get('volta') || '/';
+function destino(papeis) {
+  const v = new URLSearchParams(location.search).get('volta') || '';
   // Só caminho interno: um "volta" apontando para fora viraria um jeito de
   // usar a nossa tela de login para levar alguém a outro site.
-  return /^\/[^/\\]/.test(v) || v === '/' ? v : '/';
+  const pedido = (/^\/[^/\\]/.test(v) || v === '/') ? v : '';
+  // Quem não é gestor trabalha só em Acordos: o painel principal traz
+  // Execução e Financeiro, que não são o trabalho dela.
+  const gestor = (papeis || []).includes('gestor');
+  if (!gestor) return (pedido === '/' || !pedido) ? '/acordos' : pedido;
+  return pedido || '/';
+}
+
+/* Papéis vêm do cadastro de equipe, não do login: é lá que o gestor define
+   quem é quem, e mudar um papel não pode exigir recriar conta.
+   Usa o token recém-obtido, não a chave pública: a base só responde a quem
+   está autenticado. */
+async function papeisDe(email, token) {
+  try {
+    const r = await fetch(
+      `${SB.url}/rest/v1/pessoa?select=nome,papeis&email=eq.${encodeURIComponent(email)}&limit=1`,
+      { headers: { apikey: SB.key, Authorization: 'Bearer ' + token } });
+    const l = r.ok ? await r.json() : [];
+    return l[0] || {};
+  } catch { return {}; }
 }
 
 async function auth(caminho, corpo, token) {
@@ -65,15 +84,18 @@ $('form').onsubmit = async e => {
     const email = $('email').value.trim();
     const d = await auth('token?grant_type=password', { email, password: $('senha').value });
     localStorage.setItem(ULTIMO, email);
+    const pessoa = await papeisDe(email, d.access_token);
     window.ANDON_SESSAO.gravar({
       access_token: d.access_token,
       refresh_token: d.refresh_token,
       expires_at: Math.floor(Date.now() / 1000) + (d.expires_in || 3600),
       email: (d.user && d.user.email) || email,
-      nome: (d.user && d.user.user_metadata && d.user.user_metadata.nome) || null,
+      nome: pessoa.nome
+            || (d.user && d.user.user_metadata && d.user.user_metadata.nome) || null,
+      papeis: pessoa.papeis || [],
       url: SB.url, key: SB.key
     });
-    location.replace(destino());
+    location.replace(destino(pessoa.papeis));
   } catch (err) {
     recado(err.message || String(err), 'erro');
     bt.disabled = false; bt.textContent = 'Entrar';

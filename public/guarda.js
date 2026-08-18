@@ -32,6 +32,21 @@
   var s = leSessao();
   if (!s || !s.access_token) return paraLogin();
 
+  // Sessao criada antes de os papeis existirem nao sabe quem e gestor.
+  // Pedir login de novo e mais seguro que adivinhar: adivinhar para cima
+  // daria o painel do escritorio a quem nao deve ter, e para baixo tiraria
+  // o painel de quem deve.
+  if (!Array.isArray(s.papeis)) return paraLogin();
+
+  // O painel principal reune Execucao e Financeiro. Quem nao e gestor
+  // trabalha so em Acordos e vai direto para la, sem passar por uma tela
+  // cheia de numero que nao e da alcada dela.
+  var gestor = (s.papeis || []).indexOf('gestor') !== -1;
+  var raiz = location.pathname === '/' || location.pathname === '/index.html';
+  if (!gestor && raiz) return location.replace('/acordos');
+
+  window.ANDON_SESSAO.gestor = gestor;
+
   // Faltando menos de dois minutos para expirar, renova antes de a tela
   // começar a pedir dados — senão o primeiro carregamento já falha.
   var agora = Math.floor(Date.now() / 1000);

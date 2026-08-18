@@ -110,25 +110,33 @@ takt, percentuais, ritmo. Ali ela está simulando, não medindo.
 
 A `service_role` **nunca** entra aqui.
 
-Sobre a chave publicável que está em `andon.js`: ela é de leitura, mas dizer
-que "está protegida por RLS" seria enganoso. O RLS está ligado, e as políticas
-de leitura liberam o papel `anon` — que é exatamente o papel dessa chave.
-Como o repositório é público, na prática **qualquer pessoa que o encontre lê a
-base inteira**: nome de cliente, número de processo e valor. Hoje o que segura
-isso é a proteção de acesso da Vercel, que protege a página e não o banco.
+Sobre a chave publicável que está nos arquivos de `public/`: ela sozinha não
+abre mais nada. As políticas de leitura exigem `authenticated`, e o papel
+dessa chave é `anon`. Quem encontrar o repositório tem a chave e continua sem
+ver um único nome de cliente — a base só responde a quem entrou pelo login.
 
-A correção é ligar o login (item 1 dos próximos passos): trocar as políticas
-de leitura de `anon` para `authenticated`. Aí a chave sozinha deixa de abrir
-qualquer porta.
+Fica registrado porque não foi sempre assim: até a tela de login existir, a
+leitura era liberada para `anon` e o repositório é público, então a base
+inteira estava exposta a quem achasse o repositório.
 
 ---
 
+## Quem entra onde
+
+| Papel | Onde cai ao entrar | O que alcança |
+|---|---|---|
+| Gestor | painel principal | tudo: Acordos, Execução, Financeiro, Equipe |
+| Operador | Acordos | Acordos e os cadastros de réus e escritórios |
+
+Papel é definido na tela de Equipe, não no login: mudar o papel de alguém não
+exige recriar conta. Quem sai do escritório vira **inativo** — some dos
+seletores e o histórico continua com dono.
+
 ## Próximos passos
 
-1. **Ligar o login.** É o mais urgente, e não é só comodidade: hoje a chave de
-   leitura está num repositório público e o RLS libera `anon`, então qualquer
-   pessoa que ache o repositório lê nome de cliente, processo e valor. Com
-   login, a leitura passa a exigir sessão e a chave sozinha deixa de valer.
+1. Ligar a proteção contra senha vazada no Supabase (Authentication →
+   Policies): um botão, e o Supabase passa a recusar senha que já apareceu em
+   vazamento conhecido.
 2. Carregar os acordos trabalhistas. É a maior parcela isolada da divergência
    com o ADVBox — R$ 82 mil — e é inteira por falta de base, não por erro.
 3. Acertar os sete pares de processo com número divergente. A tela de

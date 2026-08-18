@@ -126,7 +126,12 @@ inteira estava exposta a quem achasse o repositório.
 | Papel | Onde cai ao entrar | O que alcança |
 |---|---|---|
 | Gestor | painel principal | tudo: Acordos, Execução, Financeiro, Equipe |
-| Operador | Acordos | Acordos e os cadastros de réus e escritórios |
+| Operador | Acordos | Acordos, e curadoria completa de réus e escritórios |
+
+Réus, escritórios e contatos são **curadoria da equipe de acordos**: elas
+criam, editam e apagam. `dados/contato.psv` fica no repositório como registro
+da importação inicial, mas a carga não o lê mais — enquanto lesse, apagar um
+e-mail errado não adiantaria nada, porque ele voltaria no push seguinte.
 
 Papel é definido na tela de Equipe, não no login: mudar o papel de alguém não
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos

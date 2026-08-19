@@ -25,8 +25,13 @@ const FONTES = [
   { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa',         so_planilha: true  },
   { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado',   so_planilha: true  },
   { arquivo: 'advbox.psv',    rpc: 'carrega_advbox',    tabela: 'advbox_lancamento', so_planilha: false },
-  { arquivo: 'contato.psv',   rpc: 'carrega_contato',   tabela: 'contato',           so_planilha: true  },
 ];
+
+// contato.psv saiu daqui de proposito. Reus, escritorios e contatos passaram
+// a ser curadoria da equipe de acordos: elas identificam o que esta errado e
+// corrigem pela tela. Enquanto o arquivo fosse recarregado, apagar um e-mail
+// errado nao adiantaria — ele voltaria no push seguinte, sem erro nenhum.
+// O arquivo continua no repositorio como registro da importacao inicial.
 
 const LOTE = 250;
 

@@ -6,11 +6,12 @@ const SB = {
   key: 'sb_publishable_s6EH8fDfeVrBVJVz9i_E9A_QYcgkf88'
 };
 
-/* Quem entrou por último no navegador. Só o e-mail — senha nunca fica
-   guardada aqui, nem no código: este repositório é público. Quem quiser o
-   preenchimento completo manda o navegador salvar a senha. */
+/* Lembra de quem entrou por último NESTE navegador, e só isso. Nada de
+   e-mail padrão no código: ele apareceria preenchido para toda pessoa que
+   abrisse o link, entregando o endereço de alguém a quem não deveria vê-lo.
+   Senha nunca fica guardada aqui nem no código — o repositório é público;
+   quem quiser o preenchimento completo manda o próprio navegador salvar. */
 const ULTIMO = 'andon.ultimo_email';
-const PADRAO = 'canaverdeadvogados8@gmail.com';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c =>
@@ -65,8 +66,9 @@ async function auth(caminho, corpo, token) {
   return d;
 }
 
-$('email').value = localStorage.getItem(ULTIMO) || PADRAO;
-if ($('email').value) $('senha').focus();
+const lembrado = localStorage.getItem(ULTIMO) || '';
+$('email').value = lembrado;
+(lembrado ? $('senha') : $('email')).focus();
 
 $('ver').onclick = () => {
   const c = $('senha');

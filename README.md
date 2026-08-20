@@ -142,6 +142,18 @@ Papel é definido na tela de Equipe, não no login: mudar o papel de alguém nã
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
 
+## Sessão
+
+Não acaba por inatividade. O Supabase vence o token de acesso em uma hora —
+isso é do desenho dele e não se desliga — então o `guarda.js` renova antes de
+vencer, sozinho, por quatro caminhos: um relógio que dispara cinco minutos
+antes; a volta para a aba, porque relógio não corre com a máquina suspensa; a
+volta da internet; e a própria chamada ao banco, que pede o token antes de sair
+e tenta de novo uma vez se ainda assim voltar recusada.
+
+Quem deixa a tela aberta o dia inteiro continua trabalhando. Sai quem clica em
+**Sair**.
+
 ## Cores
 
 Quatro temas: **escuro** (padrão), **grafite**, **claro** e **pastel**. Cada

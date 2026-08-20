@@ -38,13 +38,16 @@
   /* Guarda no banco sem travar a tela: a cor ja mudou: se a rede falhar, a
      escolha continua valendo neste navegador e sobe na proxima troca. */
   function guardaNoBanco(t) {
-    var s = window.ANDON_SESSAO && window.ANDON_SESSAO.ler();
+    var g = window.ANDON_SESSAO;
+    var s = g && g.ler();
     if (!s || !s.access_token || !s.url) return;
-    fetch(s.url + '/rest/v1/rpc/definir_tema', {
-      method: 'POST',
-      headers: { apikey: s.key, 'Content-Type': 'application/json',
-                 Authorization: 'Bearer ' + s.access_token },
-      body: JSON.stringify({ p_tema: t })
+    (g.token ? g.token() : Promise.resolve(s.access_token)).then(function (tok) {
+      return fetch(s.url + '/rest/v1/rpc/definir_tema', {
+        method: 'POST',
+        headers: { apikey: s.key, 'Content-Type': 'application/json',
+                   Authorization: 'Bearer ' + tok },
+        body: JSON.stringify({ p_tema: t })
+      });
     }).catch(function () { });
   }
 

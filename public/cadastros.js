@@ -19,16 +19,24 @@ const SESSAO = window.ANDON_SESSAO;
 let sessao = SESSAO.ler();
 const logado = () => !!(sessao && sessao.access_token);
 
-function cabecalhos(extra) {
+function cabecalhos(token, extra) {
   const h = { apikey: SB.key, 'Content-Type': 'application/json', ...(extra || {}) };
-  h.Authorization = 'Bearer ' + (logado() ? sessao.access_token : SB.key);
+  h.Authorization = 'Bearer ' + (token || SB.key);
   return h;
 }
 
-async function api(caminho, opcoes) {
+/* Pede o token antes de cada chamada: é assim que a renovação acontece sozinha
+   e ninguém é derrubado por deixar a tela aberta. A segunda tentativa cobre o
+   token que vence entre pedir e chegar — recusada não mexeu no banco. */
+async function api(caminho, opcoes, jaRenovou) {
+  const t = await SESSAO.token().catch(() => null);
   const r = await fetch(`${SB.url}/rest/v1/${caminho}`, {
-    ...opcoes, headers: cabecalhos(opcoes && opcoes.headers)
+    ...opcoes, headers: cabecalhos(t, opcoes && opcoes.headers)
   });
+  if ((r.status === 401 || r.status === 403) && !jaRenovou) {
+    const novo = await SESSAO.renovar().catch(() => null);
+    if (novo) return api(caminho, opcoes, true);
+  }
   if (r.status === 401 || r.status === 403) {
     throw new Error(logado()
       ? 'Sua sessão expirou. Entre de novo para salvar.'
@@ -81,11 +89,25 @@ const PEDIDO = {
 };
 if (TELAS.some(t => t.id === PEDIDO.aba)) aba = PEDIDO.aba;
 
-/* Quem é gestor volta para o painel; quem só trabalha em Acordos volta para
-   Acordos — mandar a operadora para o painel do escritório seria jogá-la
-   numa tela que ela nem pode abrir. */
-const VOLTA = () => ehGestor() ? { url: '/', rotulo: 'Painel' }
-                               : { url: '/acordos', rotulo: 'Acordos' };
+/* Voltar é voltar para onde a pessoa estava, e não para um lugar fixo: quem
+   veio de Acordos volta para Acordos. Só quando não dá para saber de onde ela
+   veio — link colado, favorito, aba nova — é que vale o padrão do papel dela;
+   mandar a operadora para o painel do escritório seria jogá-la numa tela que
+   ela nem pode abrir. */
+const NOME_TELA = { '/': 'Painel', '/index.html': 'Painel',
+                    '/acordos': 'Acordos', '/acordos.html': 'Acordos' };
+
+function VOLTA() {
+  let veio = '';
+  try {
+    const u = new URL(document.referrer || '');
+    if (u.origin === location.origin) veio = u.pathname + u.search;
+  } catch (e) { /* sem referrer: segue para o padrão */ }
+  // Voltar para o próprio Cadastros seria ficar parado no mesmo lugar.
+  if (/^\/cadastros/.test(veio)) veio = '';
+  const url = veio || (ehGestor() ? '/' : '/acordos');
+  return { url, rotulo: NOME_TELA[url.split('?')[0]] || '', daPagina: !!veio };
+}
 
 /* Aviso para as outras abas: a tratativa aberta em outra aba recarrega os
    contatos sozinha. O valor muda sempre para o evento disparar de novo. */
@@ -445,7 +467,7 @@ function formSenha() {
     const r = await fetch(`${SB.url}/auth/v1/user`, {
       method: 'PUT',
       headers: { apikey: SB.key, 'Content-Type': 'application/json',
-                 Authorization: 'Bearer ' + sessao.access_token },
+                 Authorization: 'Bearer ' + await SESSAO.token() },
       body: JSON.stringify({ password: nova })
     });
     const d = await r.json().catch(() => ({}));
@@ -512,9 +534,16 @@ function formLogin() {
 function desenha() {
   const v = VOLTA();
   $('nav').innerHTML =
-    `<a class="nav-link voltar" href="${v.url}">&#8592; Voltar para ${v.rotulo}</a>`
+    `<a class="nav-link voltar" id="voltar" href="${esc(v.url)}">&#8592; Voltar${
+      v.rotulo ? ' para ' + v.rotulo : ''}</a>`
     + TELAS.map(t =>
       `<button class="${t.id === aba ? 'on' : ''}" data-aba="${t.id}">${t.rotulo}</button>`).join('');
+  // Havendo histórico, volta por ele: a tela anterior reaparece como estava,
+  // com filtro e rolagem no lugar. Aba nova não tem histórico e segue pelo href.
+  $('voltar').onclick = ev => {
+    if (!v.daPagina || history.length <= 1) return;
+    ev.preventDefault(); history.back();
+  };
   document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
     aba = b.dataset.aba; busca = ''; $('q').value = ''; desenha();
   });

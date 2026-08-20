@@ -117,12 +117,10 @@
   text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:.14s;
   white-space:nowrap}
 .bt-mini:hover{color:var(--txt);border-color:var(--txt-3);background:var(--surf-2)}
-.contato-grupo{margin-bottom:8px}
-.contato-grupo:last-of-type{margin-bottom:0}
-.contato-grupo .rot-grupo{display:flex;align-items:center;gap:8px;
+.rot-grupo{display:flex;align-items:center;gap:8px;
   font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
-  font-family:'JetBrains Mono',monospace;margin:8px 0 2px}
-.contato-grupo .rot-grupo .traco{flex:1;height:1px;background:var(--line)}
+  font-family:'JetBrains Mono',monospace;margin:4px 0 2px}
+.rot-grupo .traco{flex:1;height:1px;background:var(--line)}
 .contato-item{display:flex;gap:9px;align-items:center;padding:6px 0;font-size:12.5px}
 .contato-item .de{font-size:10px;color:var(--txt-3);white-space:nowrap}
 .contato-item .v{flex:1;min-width:0;word-break:break-all}

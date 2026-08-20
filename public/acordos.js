@@ -28,10 +28,20 @@ const SESSAO = window.ANDON_SESSAO;
 let sessao = SESSAO.ler();
 const logado = () => !!(sessao && sessao.access_token);
 
-async function api(caminho, opcoes) {
+/* O token de acesso vence de hora em hora. Pedir a ele antes de cada chamada
+   faz a renovação acontecer sozinha; a segunda tentativa cobre o caso raro de
+   ele vencer entre pedir e chegar. Sem isso, quem deixava a tela aberta era
+   derrubado no meio de uma tratativa. */
+async function api(caminho, opcoes, jaRenovou) {
+  const t = await SESSAO.token().catch(() => null);
   const h = { apikey: SB.key, 'Content-Type': 'application/json', ...((opcoes || {}).headers || {}) };
-  h.Authorization = 'Bearer ' + (logado() ? sessao.access_token : SB.key);
+  h.Authorization = 'Bearer ' + (t || SB.key);
   const r = await fetch(`${SB.url}/rest/v1/${caminho}`, { ...opcoes, headers: h });
+  if ((r.status === 401 || r.status === 403) && !jaRenovou) {
+    // Recusada não teve efeito nenhum no banco: repetir é seguro.
+    const novo = await SESSAO.renovar().catch(() => null);
+    if (novo) return api(caminho, opcoes, true);
+  }
   if (r.status === 401 || r.status === 403) throw new Error(logado()
     ? 'Sua sessão expirou. Entre de novo para salvar.'
     : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
@@ -678,10 +688,9 @@ function etapaFaturamento() {
    réus diferentes e os contatos não aparecem. */
 const chaveNome = s => String(s || '').toUpperCase().normalize('NFD').replace(/[^A-Z0-9]/g, '');
 
-/* Contatos do réu e do escritório escolhidos.
-   Mostra e-mails E telefones — a operadora escreve por e-mail e liga no mesmo
-   atendimento, e antes só via o canal marcado no campo "forma de contato".
-   O canal escolhido vem primeiro, que é o que ela vai usar agora. */
+/* Contatos do réu e do escritório, filtrados pela forma de contato escolhida:
+   quem vai mandar e-mail não quer a lista de telefones no caminho. A lista
+   completa dos dois canais fica na tela de Cadastros, a um clique daqui. */
 function pintaContatos() {
   const cx = $('caixa-contatos');
   if (!cx) return;
@@ -693,16 +702,13 @@ function pintaContatos() {
     ? lista.find(x => chaveNome(x.nome) === chaveNome(nome)) : null;
   const donoReu = acha(REUS, nomeReu);
   const donoEsc = acha(ESCRS, nomeEsc);
+  const querEmail = canal === 'E-MAIL';
   const de = (dono, tipo, rot) => dono
-    ? CONTATOS.filter(c => c.dono_tipo === tipo && c.dono_id === dono.id)
+    ? CONTATOS.filter(c => c.dono_tipo === tipo && c.dono_id === dono.id
+                        && (querEmail ? c.canal === 'E-MAIL' : c.canal !== 'E-MAIL'))
               .map(c => ({ ...c, de: rot })) : [];
 
-  const todos  = [...de(donoEsc, 'escritorio', 'escritório'), ...de(donoReu, 'parte', 'réu')];
-  const emails = todos.filter(c => c.canal === 'E-MAIL');
-  const fones  = todos.filter(c => c.canal !== 'E-MAIL');
-  const grupos = (canal === 'E-MAIL' ? [['E-mails', emails, ', '], ['Telefones', fones, ' / ']]
-                                     : [['Telefones', fones, ' / '], ['E-mails', emails, ', ']])
-    .filter(g => g[1].length);
+  const todos = [...de(donoEsc, 'escritorio', 'escritório'), ...de(donoReu, 'parte', 'réu')];
 
   /* Atalho para o cadastro, em outra aba e já no registro certo. Réu que
      ainda não existe abre o formulário de novo réu com o nome preenchido. */
@@ -728,15 +734,14 @@ function pintaContatos() {
       <button type="button" class="bt-mini" id="recarregar-contatos"
         title="Buscar de novo o que foi editado no cadastro">atualizar</button>
     </div>
-    ${grupos.length ? grupos.map(([rot, l, junta]) => `
-      <div class="contato-grupo">
-        <div class="rot-grupo"><span>${rot} — ${l.length}</span><i class="traco"></i>
-          ${l.length > 1 ? `<button type="button" class="copiar"
-            data-copiar="${esc(l.map(c => c.valor).join(junta))}">copiar todos</button>` : ''}
-        </div>
-        ${l.map(linha).join('')}
-      </div>`).join('')
-      : `<div class="sem-contato">Nenhum contato cadastrado
+    ${todos.length ? `
+      ${todos.length > 1 ? `<div class="rot-grupo">
+        <span>${querEmail ? 'E-mails' : 'Telefones'} — ${todos.length}</span><i class="traco"></i>
+        <button type="button" class="copiar"
+          data-copiar="${esc(todos.map(c => c.valor).join(querEmail ? ', ' : ' / '))}">copiar todos</button>
+      </div>` : ''}
+      ${todos.map(linha).join('')}`
+      : `<div class="sem-contato">Nenhum contato de ${querEmail ? 'e-mail' : 'telefone'} cadastrado
          para ${esc(nomeReu || 'este réu')}${nomeEsc ? ' nem para ' + esc(nomeEsc) : ''}.
          Use os botões acima para cadastrar — eles abrem em outra aba, e ao voltar
          para cá os contatos aparecem sozinhos.</div>`}`;

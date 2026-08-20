@@ -40,7 +40,7 @@ function destino(papeis) {
    está autenticado. */
 async function papeisDe(email, token) {
   try {
-    const r = await fetch(
+    const r = await ANDON_REDE.buscar(
       `${SB.url}/rest/v1/pessoa?select=nome,papeis,tema&email=eq.${encodeURIComponent(email)}&limit=1`,
       { headers: { apikey: SB.key, Authorization: 'Bearer ' + token } });
     const l = r.ok ? await r.json() : [];
@@ -51,7 +51,7 @@ async function papeisDe(email, token) {
 async function auth(caminho, corpo, token) {
   const h = { apikey: SB.key, 'Content-Type': 'application/json' };
   if (token) h.Authorization = 'Bearer ' + token;
-  const r = await fetch(`${SB.url}/auth/v1/${caminho}`, {
+  const r = await ANDON_REDE.buscar(`${SB.url}/auth/v1/${caminho}`, {
     method: 'POST', headers: h, body: JSON.stringify(corpo)
   });
   const d = await r.json().catch(() => ({}));

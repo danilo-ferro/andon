@@ -44,7 +44,8 @@
     var s = leSessao();
     if (!s || !s.refresh_token || !s.url) return Promise.reject(new Error('sem sessao'));
 
-    renovando = fetch(s.url + '/auth/v1/token?grant_type=refresh_token', {
+    var buscar = (window.ANDON_REDE && window.ANDON_REDE.buscar) || fetch;
+    renovando = buscar(s.url + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
       headers: { apikey: s.key, 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: s.refresh_token })

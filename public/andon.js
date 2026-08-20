@@ -108,9 +108,11 @@ async function carrega(){
     st:r.status, dexp:r.data_expedicao, ult:r.ultimo_andamento,
     dult:r.data_ultimo_andamento, obs:r.observacoes||'', drec:r.data_recebimento}));
 
+  // valor e data_atualizacao entram aqui porque a tratativa passou a guardar os
+  // dois: sem eles o quadro de Acordos so sabia contar caso, nao somar dinheiro.
   TRAT = tr.map(r=>({id:'T'+r.id, fase:r.fase, uf:r.estado, adv:r.advogado, proc:r.processo,
     autor:r.autor, reu:r.reu, escr:r.escritorio_adverso, canal:r.canal, data:r.data,
-    st:r.status, obs:r.observacoes||''}));
+    dult:r.data_atualizacao, valor:+r.valor||0, st:r.status, obs:r.observacoes||''}));
 
   // Os acordos vem de tratativa, nao mais de acordo_faturado: e la que a
   // equipe trabalha, e o painel precisa refletir o que ela faz hoje. A tabela
@@ -135,10 +137,11 @@ async function carrega(){
   }
   if(fs.length){
     CFG.fasesA = fs.filter(f=>f.esteira==='acordo')
-      .map(f=>({id:f.id,nome:f.nome,grupo:f.grupo_id,cor:f.cor,denom:f.conta_no_denominador}));
+      .map(f=>({id:f.id,nome:f.nome,grupo:f.grupo_id,cor:f.cor,denom:f.conta_no_denominador,
+                fim:!!f.finalizada}));
     CFG.fasesE = fs.filter(f=>f.esteira==='execucao' && f.id!=='MLE - ACORDO')
       .map(f=>({id:f.id,nome:f.nome,grupo:f.grupo_id,cor:f.cor,desc:f.descricao,
-                conf:f.confianca,prazo:f.prazo_dias}));
+                conf:f.confianca,prazo:f.prazo_dias,fim:!!f.finalizada}));
   }
   mt.forEach(m=>{
     if(m.chave==='caixa_ano') CFG.meta_caixa=+m.valor;
@@ -316,6 +319,22 @@ function taxaPor(chave){
 /* ==================================================================
    COMPONENTES
    ================================================================== */
+/* Faixa de total do quadro. Soma o que esta em tela, ja filtrado, e diz sobre
+   quantos casos a soma foi feita — sem isso ninguem sabe se um total baixo e
+   pouco dinheiro ou valor que ninguem preencheu. */
+function totalQuadro(rotulo, itens, valorDe, um, muitos){
+  const comValor = itens.filter(x=>+valorDe(x)>0);
+  const v = soma(itens, valorDe);
+  return `<div class="total-quadro">
+    <span class="r">${rotulo}</span>
+    <b class="mono">${brl2(v)}</b>
+    <span class="o">${itens.length} ${itens.length===1?um:muitos}
+      · <b>${comValor.length}</b> com valor</span>
+    ${comValor.length?`<span class="fim">ticket médio ${brl(v/comValor.length)}</span>`:''}
+  </div>`;
+}
+
+
 function kpi(rot,val,obs,cor){
   return `<div class="kpi" style="--gl:${cor||'rgba(99,102,241,.24)'}">
     <div class="r">${rot}</div><div class="v">${val}</div>
@@ -600,12 +619,14 @@ let filtroA = {fase:null, adv:null, texto:''};
 let limiteA = {};
 
 function fichaTrat(t){
-  const d = dias(t.data);
+  // Caso encerrado nao tem tempo parado: ele nao parou, acabou.
+  const d = fA(t.st).fim ? null : dias(t.dult || t.data);
   const alerta = d>CFG.alerta_parado && fA(t.st).grupo==='contato';
   return `<article class="ficha" data-abrir="T" data-id="${t.id}" style="--c:${fA(t.st).cor}">
     <div class="fl1"><span class="proc">${esc(t.proc)}</span>
       ${d!==null?`<span class="tarja ${alerta?'r':(d>20?'a':'v')}">${d}d</span>`:''}</div>
     <div class="partes">${esc(cap(t.autor).split(' ').slice(0,2).join(' '))}<i>×</i>${esc(t.reu)}</div>
+    ${t.valor?`<div class="cif">${brl2(t.valor)}</div>`:''}
     <div class="selos">
       <span class="selo">${esc(t.fase)}</span>
       <span class="selo">${esc(t.uf)}</span>
@@ -626,6 +647,8 @@ function telaAcordos(){
       const itens = base.filter(t=>t.st===f.id);
       const lim = limiteA[f.id] || 25;
       const most = itens.slice(0,lim);
+      const val = soma(itens,t=>t.valor);
+      const comV = itens.filter(t=>t.valor>0).length;
       const dd = itens.map(t=>dias(t.data)).filter(x=>x!==null);
       const med = dd.length? Math.round(dd.reduce((a,b)=>a+b,0)/dd.length) : null;
       const wip = Math.min(itens.length/CFG.wip_limite*100,100);
@@ -634,8 +657,9 @@ function telaAcordos(){
         <div class="col-cab">
           <div class="l1"><span class="pt" style="background:${f.cor};color:${f.cor}"></span>
             <b>${esc(f.nome)}</b><span class="qt">${itens.length}</span></div>
-          <div class="vl">${med!==null?med+' d':'—'}</div>
-          <div class="sb">${med!==null?'idade média na fase':'sem data'}</div>
+          <div class="vl">${val?brl2(val):'—'}</div>
+          <div class="sb">${val?`${comV} de ${itens.length} com valor`
+            :(med!==null?'idade média '+med+' d':'sem valor')}</div>
           ${g.id==='contato'?`<div class="wip"><i style="width:${wip}%;background:${wipCor}"></i></div>`:''}
         </div>
         <div class="col-lista">
@@ -669,8 +693,9 @@ function telaAcordos(){
     </div>
 
     ${fluxo(CFG.fasesA, id=>base.filter(t=>t.st===id), ()=>1, 'Onde estão as tratativas',
-      'Altura pela quantidade de casos, não por valor: a planilha de tratativas não guarda valor.', null,'trat')}
+      'Altura pela quantidade de casos, não por valor — uma tratativa vale o mesmo aqui, tenha ela número ou não.', null,'trat')}
 
+    ${totalQuadro('Total na esteira', base, t=>t.valor, 'tratativa', 'tratativas')}
     <div class="quadro">${faixas}</div>`;
 
   document.querySelectorAll('[data-adv]').forEach(b=>b.onclick=()=>{
@@ -689,7 +714,8 @@ let filtroE = {fase:null, adv:null, prod:null, parado:false};
 let limiteE = {};
 
 function fichaExec(e){
-  const d = dias(e.dult);
+  // Valor ja recebido nao tem tempo parado: ele chegou ao fim da esteira.
+  const d = fE(e.st).fim ? null : dias(e.dult);
   const crit = d!==null && d>CFG.alerta_critico;
   const at = d!==null && d>CFG.alerta_parado;
   const rem = /remanescente/i.test(e.obs), inc = /incontroverso/i.test(e.obs);
@@ -776,6 +802,7 @@ function telaExecucao(){
     ${fluxo(CFG.fasesE, id=>base.filter(e=>e.st===id), e=>e.valor, 'O funil do dinheiro',
       'Da esquerda para a direita, o valor amadurece até virar caixa.', filtroE.fase,'exec')}
 
+    ${totalQuadro('Total no quadro', base, e=>e.valor, 'valor', 'valores')}
     <div class="quadro">${faixas}</div>`;
 
   document.querySelectorAll('[data-eadv]').forEach(b=>b.onclick=()=>{

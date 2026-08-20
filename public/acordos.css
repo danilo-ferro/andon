@@ -33,6 +33,7 @@
   background:var(--surf-2);border-radius:99px;padding:2px 9px}
 .col-k .vl{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
   letter-spacing:-.03em;margin-top:6px}
+.col-k .sb{font-size:10.5px;color:var(--txt-3);margin-top:2px}
 .col-k .itens{padding:11px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
 
 /* Card maior e legível — o do kanban antigo era pequeno demais para trabalhar. */

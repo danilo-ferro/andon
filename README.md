@@ -76,6 +76,14 @@ mesmo digitando errado.
 audiência está vivo. Contá-lo como perda derrubaria a taxa por um motivo que
 não tem nada a ver com a qualidade da negociação.
 
+E o relógio só corre para quem ainda pode andar: fase marcada como
+`finalizada` — acordo fechado, recusado, sem retorno, improcedente, e o
+recebido na execução — não mostra tempo parado nem entra no filtro
+"parado há". Um acordo fechado há trezentos dias não está atrasado; ele
+acabou. `finalizada` e `conta_no_denominador` são colunas separadas de
+propósito: uma diz o que entra na taxa, a outra diz o que parou de correr, e
+nada garante que continuem coincidindo.
+
 **5. Métrica se calcula uma vez, no banco.** Toda métrica é uma view. Tela,
 relatório e exportação leem a mesma view. Se dois números divergirem, alguém
 calculou fora daqui — e isso é bug de implementação, não de interpretação.

@@ -36,7 +36,7 @@ async function api(caminho, opcoes, jaRenovou) {
   const t = await SESSAO.token().catch(() => null);
   const h = { apikey: SB.key, 'Content-Type': 'application/json', ...((opcoes || {}).headers || {}) };
   h.Authorization = 'Bearer ' + (t || SB.key);
-  const r = await fetch(`${SB.url}/rest/v1/${caminho}`, { ...opcoes, headers: h });
+  const r = await ANDON_REDE.buscar(`${SB.url}/rest/v1/${caminho}`, { ...opcoes, headers: h });
   if ((r.status === 401 || r.status === 403) && !jaRenovou) {
     // Recusada não teve efeito nenhum no banco: repetir é seguro.
     const novo = await SESSAO.renovar().catch(() => null);
@@ -68,10 +68,10 @@ const ler   = (t, q)    => api(`${t}?${q || 'select=*'}`);
 
 /* O PostgREST corta em 1000 linhas por resposta, sem avisar. Sem paginar,
    1.407 tratativas apareciam como 1.000 e as contas saiam erradas. */
-async function lerTudo(t, extra) {
+async function lerTudo(t, campos) {
   const out = []; let de = 0;
   for (;;) {
-    const l = await api(`${t}?select=*&order=id.asc&offset=${de}&limit=1000${extra || ''}`);
+    const l = await api(`${t}?select=${campos || '*'}&order=id.asc&offset=${de}&limit=1000`);
     out.push(...l);
     if (l.length < 1000) break;
     de += 1000;
@@ -124,9 +124,11 @@ async function carrega() {
     ler('pessoa', 'select=*&order=nome.asc'),
     ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
     ler('escritorio_adverso', 'select=id,nome,chave&order=nome.asc'),
-    lerTudo('contato'),
+    // Só as colunas que a tela usa: contato e parcela são as tabelas mais
+    // longas, e trazer o que não se usa é peso de rede em cada carregamento.
+    lerTudo('contato', 'id,dono_tipo,dono_id,canal,valor,rotulo'),
     ler('config_fase', 'select=*&esteira=eq.acordo&order=ordem.asc'),
-    lerTudo('acordo_parcela')
+    lerTudo('acordo_parcela', 'id,tratativa_id,numero,previsao,valor,recebido')
   ]);
   TRAT = t; PESSOAS = p; REUS = r; ESCRS = e; CONTATOS = c; FASES = f; PARCELAS = pc;
 }
@@ -557,7 +559,8 @@ const vazio = () => ({
   valor: null, data_atualizacao: ISO(HOJE),
   data_minuta_assinada: null, data_protocolo: null, forma_pagamento: 'unica',
   qtd_parcelas: null, prazo_dias: null, tipo_prazo: 'uteis', previsao: null,
-  previsao_manual: false, recebido: false, data_recebimento: null
+  previsao_manual: false, recebido: false, data_recebimento: null,
+  chave_cliente: null
 });
 
 /* Ultima barreira antes do banco. Uma unica string vazia numa coluna de data
@@ -572,6 +575,9 @@ const numero   = v => {
 
 function abreForm(t) {
   rascunho = t ? { ...t } : vazio();
+  // Tratativa nova ganha a chave aqui, antes de qualquer digitação: assim ela
+  // acompanha o rascunho guardado e repetir o salvamento nunca duplica.
+  if (!rascunho.id && !rascunho.chave_cliente) rascunho.chave_cliente = ANDON_REDE.chaveNova();
   etapa = 1;
   pintaForm();
   $('gav').classList.add('on'); $('veu').classList.add('on');
@@ -594,7 +600,11 @@ function pintaForm() {
       }).join('')}
     </div>`;
 
-  $('gavC').innerHTML = `<div id="recado"></div>
+  /* O recado sobrevive ao redesenho. Sem isto, "Tratativa salva." aparecia e
+     sumia meio segundo depois, quando a releitura das parcelas repintava o
+     formulário — e a operadora ficava sem saber se tinha salvado. */
+  const recadoAtual = ($('recado') || {}).innerHTML || '';
+  $('gavC').innerHTML = `<div id="recado">${recadoAtual}</div>
     ${etapaIdentificacao()}${etapaTratativa()}${etapaFaturamento()}
     <div class="rodape-form">
       ${etapa > 1 ? '<button class="bt" data-ir="' + (etapa - 1) + '">← Voltar</button>' : ''}
@@ -815,7 +825,7 @@ async function atualizaCadastros() {
     const [r, e, c] = await Promise.all([
       ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
       ler('escritorio_adverso', 'select=id,nome,chave&order=nome.asc'),
-      lerTudo('contato')
+      lerTudo('contato', 'id,dono_tipo,dono_id,canal,valor,rotulo')
     ]);
     const nomes = l => l.map(x => x.nome).join('');
     const listaMudou = nomes(r) !== nomes(REUS) || nomes(e) !== nomes(ESCRS);
@@ -869,6 +879,16 @@ function coleta() {
     r.previsao_manual = !!(previsaoDigitada && previsaoDigitada !== r.previsao);
     r.previsao = previsaoDigitada;
   }
+  talvezGuardeRascunho();
+}
+
+/* Enquanto a tratativa nova não existe no banco, cada passada pelo formulário
+   deixa uma cópia neste navegador. Fechar sem querer, F5, queda de energia:
+   o trabalho volta. Some quando a tratativa é salva ou quando a pessoa
+   clica em Cancelar — aí ela desistiu de propósito. */
+function talvezGuardeRascunho() {
+  if (rascunho && !rascunho.id && String(rascunho.processo || '').trim())
+    guardaRascunho(rascunho);
 }
 
 function ligaForm() {
@@ -884,7 +904,7 @@ function ligaForm() {
   document.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => {
     coleta(); etapa = +b.dataset.ir; pintaForm();
   });
-  $('cancelar').onclick = fechaGaveta;
+  $('cancelar').onclick = () => { esqueceRascunho(); fechaGaveta(); };
   $('salvar').onclick = () => protege(salvar);
 
   ['f-canal', 'f-reu', 'f-escritorio'].forEach(id => {
@@ -931,15 +951,110 @@ async function salvar() {
     previsao: semVazio(r.previsao), previsao_manual: !!r.previsao_manual,
     recebido: !!r.recebido, data_recebimento: semVazio(r.data_recebimento)
   };
-  if (!r.id) dados.origem_registro = 'sistema';
+  if (!r.id) {
+    dados.origem_registro = 'sistema';
+    // Chave própria da tratativa nova: se a conexão cair depois de a gravação
+    // ter chegado, a repetição esbarra no índice único em vez de criar uma
+    // segunda tratativa. É o que torna seguro tentar de novo.
+    dados.chave_cliente = r.chave_cliente || (r.chave_cliente = ANDON_REDE.chaveNova());
+  }
 
-  const salvo = r.id ? await mudar('tratativa', r.id, dados) : await criar('tratativa', dados);
-  const id = r.id || (salvo && salvo[0] && salvo[0].id);
-  await carrega();
-  desenha();
-  const atualizada = TRAT.find(t => t.id === id);
-  if (atualizada) { rascunho = { ...atualizada }; pintaForm(); }
+  let salvo;
+  try {
+    salvo = r.id ? await mudar('tratativa', r.id, dados) : await criar('tratativa', dados);
+  } catch (e) {
+    // Duplicata da chave: a primeira tentativa tinha chegado. Não é erro —
+    // é a prova de que salvou.
+    if (/duplicate key|chave_cliente/i.test(e.message || '') && dados.chave_cliente) {
+      salvo = await ler('tratativa',
+        `select=*&chave_cliente=eq.${encodeURIComponent(dados.chave_cliente)}&limit=1`)
+        .catch(() => null);
+    }
+    if (!salvo || !salvo.length) {
+      guardaRascunho(dados);
+      // Diante de um erro de gravação, a primeira dúvida é "perdi o que
+      // digitei?". A resposta vem junto com o erro, não depois.
+      if (e.rede) e.message += ' Nada do que você preencheu foi perdido — '
+        + 'está tudo aqui na tela, e também guardado neste computador.';
+      throw e;
+    }
+  }
+
+  const gravada = (salvo && salvo[0]) || null;
+  const id = r.id || (gravada && gravada.id);
+  esqueceRascunho();
+
+  /* A gravação terminou. Daqui para baixo é atualização de tela — e ela não
+     pode transformar um salvamento que deu certo em erro vermelho. Era o que
+     acontecia: a releitura do banco inteiro (nove chamadas, mais de um mega)
+     falhava numa piscada de rede e a operadora via "Failed to fetch" sobre uma
+     tratativa que estava salva. */
+  if (gravada) {
+    const i = TRAT.findIndex(t => t.id === gravada.id);
+    if (i >= 0) TRAT[i] = gravada; else TRAT.push(gravada);
+    rascunho = { ...gravada };
+    pintaForm();     // redesenha a gaveta, e com ela o espaço do recado
+    desenha();
+  }
   alerta('Tratativa salva.', 'ok');
+  // As parcelas são geradas pelo banco a partir do que acabou de ser salvo.
+  // Duas chamadas pequenas no lugar da releitura inteira.
+  if (id) releParcelas(id).catch(() => { });
+}
+
+/* Relê só o que o banco pode ter mudado sozinho por causa deste salvamento:
+   as parcelas e a própria linha (previsão calculada, campos normalizados). */
+async function releParcelas(id) {
+  const [linha, parcelas] = await Promise.all([
+    ler('tratativa', `select=*&id=eq.${id}&limit=1`),
+    ler('acordo_parcela', `select=*&tratativa_id=eq.${id}&order=numero.asc`)
+  ]);
+  PARCELAS = PARCELAS.filter(p => p.tratativa_id !== +id).concat(parcelas || []);
+  const nova = linha && linha[0];
+  if (nova) {
+    const i = TRAT.findIndex(t => t.id === nova.id);
+    if (i >= 0) TRAT[i] = nova;
+    if (rascunho && rascunho.id === nova.id) { rascunho = { ...nova }; pintaForm(); }
+  }
+  desenha();
+}
+
+/* ---------- resgate do que foi digitado ----------
+   Salvamento que falha por rede deixa a gaveta aberta com tudo no lugar, mas
+   um F5 ou um navegador fechado por engano levaria o trabalho junto. O
+   rascunho fica guardado neste navegador até dar certo. */
+const RASCUNHO = 'andon.tratativa_pendente';
+function guardaRascunho(dados) {
+  try { localStorage.setItem(RASCUNHO, JSON.stringify({ quando: Date.now(), dados })); }
+  catch (e) { /* sem espaço: a gaveta aberta ainda tem tudo */ }
+}
+function esqueceRascunho() {
+  try { localStorage.removeItem(RASCUNHO); } catch (e) { }
+}
+function rascunhoGuardado() {
+  try { return JSON.parse(localStorage.getItem(RASCUNHO) || 'null'); } catch (e) { return null; }
+}
+
+/* Se sobrou um rascunho de um salvamento que não terminou, oferece de volta em
+   vez de deixar a pessoa descobrir sozinha que perdeu o trabalho. */
+function ofereceResgate() {
+  const g = rascunhoGuardado();
+  if (!g || !g.dados) return;
+  const quando = new Date(g.quando || Date.now());
+  const hora = String(quando.getHours()).padStart(2, '0') + ':'
+             + String(quando.getMinutes()).padStart(2, '0');
+  $('aviso').innerHTML = `<div class="nota" style="max-width:2100px;margin:16px auto 0;
+    width:calc(100% - 40px);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span style="flex:1;min-width:240px">A tratativa que você começou às <b>${hora}</b>
+      (${esc(g.dados.processo || 'sem número')}) não chegou a ser salva.
+      Ela continua guardada neste computador.</span>
+    <button class="bt p" id="resgatar">Abrir e salvar</button>
+    <button class="bt" id="descartar">Descartar</button></div>`;
+  $('resgatar').onclick = () => {
+    $('aviso').innerHTML = '';
+    abreForm({ ...vazio(), ...g.dados, id: undefined });
+  };
+  $('descartar').onclick = () => { esqueceRascunho(); $('aviso').innerHTML = ''; };
 }
 
 /* ---------- utilidades de tela ---------- */
@@ -992,13 +1107,20 @@ $('fx').onclick = fechaGaveta;
 $('veu').onclick = fechaGaveta;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
 
-(async function inicia() {
+/* Falhar ao carregar não pode ser um beco sem saída com texto em inglês:
+   quase sempre é rede, e quase sempre a segunda tentativa passa. */
+async function inicia() {
   $('t-painel').innerHTML = '<div class="carregando">Carregando…</div>';
   pintaSessao();
   try {
     await carrega();
     desenha();
+    ofereceResgate();
   } catch (e) {
-    $('t-painel').innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
+    $('t-painel').innerHTML = `<div class="vazio">
+      Não consegui carregar as tratativas.<br><br>${esc(e.message)}<br><br>
+      <button class="bt p" id="tentar-de-novo">Tentar de novo</button></div>`;
+    $('tentar-de-novo').onclick = inicia;
   }
-})();
+}
+inicia();

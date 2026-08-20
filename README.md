@@ -150,6 +150,34 @@ Papel é definido na tela de Equipe, não no login: mudar o papel de alguém nã
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
 
+## Quando a rede falha
+
+`fetch` só rejeita quando a requisição não completou — o wi-fi caiu, o antivírus
+cortou a conexão, o notebook dormiu. Não há resposta nenhuma: nem código, nem
+corpo. O navegador diz só **"Failed to fetch"**, e era isso que chegava na tela
+da equipe, em inglês, sobre gravações que muitas vezes tinham dado certo.
+
+Três regras agora:
+
+**Repetir antes de desistir.** Toda chamada é tentada três vezes, com intervalo
+crescente. Uma piscada de meio segundo deixou de virar trabalho perdido.
+
+**Repetir não pode duplicar.** Tratativa nova sorteia uma `chave_cliente` antes
+de qualquer digitação e manda junto. Se a conexão cair *depois* de a gravação
+ter chegado, a segunda tentativa esbarra no índice único — e a tela lê isso como
+prova de que salvou, não como erro.
+
+**Gravou é gravado.** O que vem depois da gravação — reler, redesenhar — não
+pode transformar sucesso em erro vermelho. Antes, salvar disparava a releitura
+do banco inteiro: nove chamadas, mais de um mega. Uma falha ali mostrava
+"Failed to fetch" sobre uma tratativa que estava salva, e a operadora salvava de
+novo. Agora a linha gravada é aplicada na tela direto, e só as parcelas são
+relidas — duas chamadas pequenas, e falhar nelas não desfaz nada.
+
+De quebra, o que está sendo digitado numa tratativa nova fica guardado no
+navegador até ser salvo. Fechar sem querer, F5, queda de energia: ao voltar, o
+sistema oferece o trabalho de volta.
+
 ## Sessão
 
 Não acaba por inatividade. O Supabase vence o token de acesso em uma hora —

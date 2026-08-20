@@ -30,7 +30,7 @@ function cabecalhos(token, extra) {
    token que vence entre pedir e chegar — recusada não mexeu no banco. */
 async function api(caminho, opcoes, jaRenovou) {
   const t = await SESSAO.token().catch(() => null);
-  const r = await fetch(`${SB.url}/rest/v1/${caminho}`, {
+  const r = await ANDON_REDE.buscar(`${SB.url}/rest/v1/${caminho}`, {
     ...opcoes, headers: cabecalhos(t, opcoes && opcoes.headers)
   });
   if ((r.status === 401 || r.status === 403) && !jaRenovou) {
@@ -585,7 +585,7 @@ function abreOPedido() {
   }
 }
 
-(async function inicia() {
+async function inicia() {
   $('t-' + aba).innerHTML = '<div class="carregando">Carregando…</div>';
   pintaSessao();
   try {
@@ -593,6 +593,10 @@ function abreOPedido() {
     desenha();
     abreOPedido();
   } catch (e) {
-    $('t-' + aba).innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
+    $('t-' + aba).innerHTML = `<div class="vazio">
+      Não consegui carregar os cadastros.<br><br>${esc(e.message)}<br><br>
+      <button class="bt p" id="tentar-de-novo">Tentar de novo</button></div>`;
+    $('tentar-de-novo').onclick = inicia;
   }
-})();
+}
+inicia();

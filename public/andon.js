@@ -53,7 +53,7 @@ function autorizacao(){
 }
 /* Uma recusa nao teve efeito no banco, entao repetir e seguro. */
 async function comToken(url, extra, jaRenovou){
-  const r = await fetch(url, { headers:{apikey:SB.key, Authorization:await autorizacao(), ...(extra||{})} });
+  const r = await ANDON_REDE.buscar(url, { headers:{apikey:SB.key, Authorization:await autorizacao(), ...(extra||{})} });
   if((r.status===401||r.status===403) && !jaRenovou){
     const g = window.ANDON_SESSAO;
     const novo = g && g.renovar ? await g.renovar().catch(()=>null) : null;

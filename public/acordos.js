@@ -35,7 +35,23 @@ async function api(caminho, opcoes) {
   if (r.status === 401 || r.status === 403) throw new Error(logado()
     ? 'Sua sessão expirou. Entre de novo para salvar.'
     : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
-  if (!r.ok) throw new Error((await r.text()).slice(0, 240) || `erro ${r.status}`);
+  if (!r.ok) {
+    const bruto = await r.text();
+    // O Postgres devolve um JSON tecnico. Sozinho, ele nao diz a ninguem o
+    // que fazer — traduzimos os casos que a equipe encontra de verdade.
+    let msg = bruto.slice(0, 240) || `erro ${r.status}`;
+    try {
+      const d = JSON.parse(bruto);
+      if (/invalid input syntax for type date/i.test(d.message || ''))
+        msg = 'Alguma data ficou incompleta. Confira os campos de data e salve de novo.';
+      else if (/invalid input syntax for type numeric/i.test(d.message || ''))
+        msg = 'Algum valor não é um número válido. Confira o valor e as parcelas.';
+      else if (/violates check constraint/i.test(d.message || ''))
+        msg = 'Um dos campos ficou com opção inválida. Reabra a tratativa e escolha de novo.';
+      else if (d.message) msg = d.message;
+    } catch { /* nao era JSON: fica o texto cru mesmo */ }
+    throw new Error(msg);
+  }
   return r.status === 204 ? null : r.json();
 }
 const ler   = (t, q)    => api(`${t}?${q || 'select=*'}`);
@@ -491,15 +507,29 @@ function telaPainel(l) {
    ================================================================== */
 let rascunho = null, etapa = 1;
 
+/* Campo nao preenchido nasce null, nao string vazia. O banco recusa '' em
+   coluna de data, e quem salva na etapa 1 ou 2 nunca chega a tocar nos
+   campos do faturamento — eles iriam vazios do mesmo jeito. */
 const vazio = () => ({
-  tipo: '', fase: 'Pré-sentença', estado: '', advogado: '', produto: '', processo: '',
-  autor: '', reu: '', escritorio_adverso: '', canal: 'WHATSAPP', operador: '',
-  data: ISO(HOJE), status: 'AGUARDANDO RETORNO', observacoes: '',
-  valor: '', data_atualizacao: ISO(HOJE),
-  data_minuta_assinada: '', data_protocolo: '', forma_pagamento: 'unica',
-  qtd_parcelas: '', prazo_dias: '', tipo_prazo: 'uteis', previsao: '',
-  previsao_manual: false, recebido: false, data_recebimento: ''
+  tipo: null, fase: 'Pré-sentença', estado: null, advogado: null, produto: null,
+  processo: '', autor: null, reu: null, escritorio_adverso: null,
+  canal: 'WHATSAPP', operador: null,
+  data: ISO(HOJE), status: 'AGUARDANDO RETORNO', observacoes: null,
+  valor: null, data_atualizacao: ISO(HOJE),
+  data_minuta_assinada: null, data_protocolo: null, forma_pagamento: 'unica',
+  qtd_parcelas: null, prazo_dias: null, tipo_prazo: 'uteis', previsao: null,
+  previsao_manual: false, recebido: false, data_recebimento: null
 });
+
+/* Ultima barreira antes do banco. Uma unica string vazia numa coluna de data
+   derruba o salvamento inteiro, e o erro que chega na tela e o texto cru do
+   Postgres — que nao diz a ninguem qual campo estava errado. */
+const semVazio = v => (v === '' || v === undefined) ? null : v;
+const numero   = v => {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = +v;
+  return Number.isFinite(n) ? n : null;
+};
 
 function abreForm(t) {
   rascunho = t ? { ...t } : vazio();
@@ -691,17 +721,17 @@ function coleta() {
   } else if (etapa === 2) {
     Object.assign(r, {
       status: v('f2-status'), data_atualizacao: v('f2-atualizacao') || null,
-      valor: v('f2-valor') === '' ? null : +v('f2-valor'), observacoes: v('f2-obs') || null
+      valor: numero(v('f2-valor')), observacoes: v('f2-obs') || null
     });
   } else {
     const previsaoDigitada = v('f3-previsao') || null;
     Object.assign(r, {
       data_minuta_assinada: v('f3-minuta') || null,
-      valor: v('f3-valor') === '' ? null : +v('f3-valor'),
+      valor: numero(v('f3-valor')),
       data_protocolo: v('f3-protocolo') || null,
       forma_pagamento: v('f3-forma'),
-      qtd_parcelas: v('f3-forma') === 'parcelado' ? (+v('f3-parcelas') || null) : null,
-      prazo_dias: v('f3-prazo') === '' ? null : +v('f3-prazo'),
+      qtd_parcelas: v('f3-forma') === 'parcelado' ? numero(v('f3-parcelas')) : null,
+      prazo_dias: numero(v('f3-prazo')),
       tipo_prazo: v('f3-tipoprazo'),
       recebido: v('f3-recebido') === 'true',
       data_recebimento: v('f3-datarec') || null,
@@ -756,15 +786,22 @@ async function salvar() {
   if (!validaIdentificacao()) return;
   const r = rascunho;
   const dados = {
-    tipo: r.tipo, fase: r.fase, estado: r.estado, advogado: r.advogado, produto: r.produto,
-    processo: r.processo, autor: r.autor, reu: r.reu, escritorio_adverso: r.escritorio_adverso,
-    canal: r.canal, operador: r.operador, data: r.data, status: r.status,
-    observacoes: r.observacoes, valor: r.valor, data_atualizacao: r.data_atualizacao,
-    data_minuta_assinada: r.data_minuta_assinada, data_protocolo: r.data_protocolo,
-    forma_pagamento: r.forma_pagamento, qtd_parcelas: r.qtd_parcelas,
-    prazo_dias: r.prazo_dias, tipo_prazo: r.tipo_prazo,
-    previsao: r.previsao, previsao_manual: !!r.previsao_manual,
-    recebido: !!r.recebido, data_recebimento: r.data_recebimento
+    tipo: semVazio(r.tipo), fase: semVazio(r.fase), estado: semVazio(r.estado),
+    advogado: semVazio(r.advogado), produto: semVazio(r.produto),
+    processo: String(r.processo || '').trim(),
+    autor: semVazio(r.autor), reu: semVazio(r.reu),
+    escritorio_adverso: semVazio(r.escritorio_adverso),
+    canal: semVazio(r.canal), operador: semVazio(r.operador),
+    data: semVazio(r.data), status: r.status,
+    observacoes: semVazio(r.observacoes),
+    valor: numero(r.valor), data_atualizacao: semVazio(r.data_atualizacao),
+    data_minuta_assinada: semVazio(r.data_minuta_assinada),
+    data_protocolo: semVazio(r.data_protocolo),
+    forma_pagamento: semVazio(r.forma_pagamento),
+    qtd_parcelas: numero(r.qtd_parcelas),
+    prazo_dias: numero(r.prazo_dias), tipo_prazo: semVazio(r.tipo_prazo),
+    previsao: semVazio(r.previsao), previsao_manual: !!r.previsao_manual,
+    recebido: !!r.recebido, data_recebimento: semVazio(r.data_recebimento)
   };
   if (!r.id) dados.origem_registro = 'sistema';
 

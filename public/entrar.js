@@ -41,7 +41,7 @@ function destino(papeis) {
 async function papeisDe(email, token) {
   try {
     const r = await fetch(
-      `${SB.url}/rest/v1/pessoa?select=nome,papeis&email=eq.${encodeURIComponent(email)}&limit=1`,
+      `${SB.url}/rest/v1/pessoa?select=nome,papeis,tema&email=eq.${encodeURIComponent(email)}&limit=1`,
       { headers: { apikey: SB.key, Authorization: 'Bearer ' + token } });
     const l = r.ok ? await r.json() : [];
     return l[0] || {};
@@ -87,6 +87,10 @@ $('form').onsubmit = async e => {
     const d = await auth('token?grant_type=password', { email, password: $('senha').value });
     localStorage.setItem(ULTIMO, email);
     const pessoa = await papeisDe(email, d.access_token);
+    /* O tema é da pessoa, não do computador: quem escolheu claro no escritório
+       abre claro em casa. Sem tema gravado volta ao padrão — senão, num
+       computador compartilhado, cada um herdaria a cor de quem entrou antes. */
+    if (window.ANDON_TEMA) window.ANDON_TEMA.adotar(pessoa.tema || 'escuro');
     window.ANDON_SESSAO.gravar({
       access_token: d.access_token,
       refresh_token: d.refresh_token,

@@ -457,8 +457,7 @@ function telaPainel(l) {
                justify-content:center">
             <div title="${brl2(x.faturado)} em ${x.protocoladas} minuta${x.protocoladas === 1 ? '' : 's'}"
                  style="width:64%;height:${x.faturado / teto * 100}%;min-height:${x.faturado ? 2 : 0}px;
-                 background:linear-gradient(180deg,#BEF264,#84CC16);border-radius:4px 4px 0 0;
-                 box-shadow:0 0 16px -3px #A3E635"></div>
+                 background:linear-gradient(180deg,#BEF264,#84CC16);border-radius:4px 4px 0 0"></div>
           </div>
           <div style="font-size:10.5px;color:var(--txt-3)">${rotMes(x.m)}</div>
           <div class="mono" style="font-size:10px;color:var(--txt-2)">${x.faturado ? kk(x.faturado) : ''}</div>
@@ -579,6 +578,11 @@ const entrada = (id, tipo, val, extra) =>
 const escolha = (id, itens, atual, vazioRot) =>
   `<select class="inp" id="${id}">${vazioRot ? opt('', atual, vazioRot) : ''}
     ${itens.map(i => opt(i.v ?? i, atual, i.l ?? i)).join('')}</select>`;
+/* Réu apagado do cadastro, advogado que saiu do escritório: o nome continua
+   gravado na tratativa e some da lista. Sem isto o seletor voltaria a "selecione"
+   e o próximo salvamento apagaria o dado sem ninguém pedir. */
+const comAtual = (lista, atual) =>
+  atual && !lista.includes(atual) ? [atual, ...lista] : lista;
 
 function etapaIdentificacao() {
   const r = rascunho;
@@ -589,7 +593,7 @@ function etapaIdentificacao() {
     </div>
     <div class="dupla">
       ${campo('Estado (UF)', escolha('f-estado', UFS, r.estado, 'selecione'))}
-      ${campo('Advogado *', escolha('f-advogado', advogados().map(p => p.nome), r.advogado, 'selecione'))}
+      ${campo('Advogado *', escolha('f-advogado', comAtual(advogados().map(p => p.nome), r.advogado), r.advogado, 'selecione'))}
     </div>
     <div class="dupla">
       ${campo('Produto / Tese', escolha('f-produto', PRODUTOS, r.produto, '—'))}
@@ -597,12 +601,12 @@ function etapaIdentificacao() {
     </div>
     ${campo('Autor (cliente)', entrada('f-autor', 'text', r.autor))}
     <div class="dupla">
-      ${campo('Réu *', escolha('f-reu', REUS.map(x => x.nome), r.reu, 'selecione'))}
-      ${campo('Escritório (adv. do réu)', escolha('f-escritorio', ESCRS.map(x => x.nome), r.escritorio_adverso, 'selecione'))}
+      ${campo('Réu *', escolha('f-reu', comAtual(REUS.map(x => x.nome), r.reu), r.reu, 'selecione'))}
+      ${campo('Escritório (adv. do réu)', escolha('f-escritorio', comAtual(ESCRS.map(x => x.nome), r.escritorio_adverso), r.escritorio_adverso, 'selecione'))}
     </div>
     <div class="dupla">
       ${campo('Forma de contato', escolha('f-canal', CANAIS, r.canal))}
-      ${campo('Operador responsável', escolha('f-operador', operadores().map(p => p.nome), r.operador, 'selecione'))}
+      ${campo('Operador responsável', escolha('f-operador', comAtual(operadores().map(p => p.nome), r.operador), r.operador, 'selecione'))}
     </div>
     <div class="dupla">
       ${campo('Data da 1ª tentativa', entrada('f-data', 'date', r.data))}
@@ -669,42 +673,131 @@ function etapaFaturamento() {
   </div>`;
 }
 
-/* Contatos do réu e do escritório, filtrados pela forma de contato escolhida. */
+/* Mesma normalização que o banco usa em chave_nome(): a planilha antiga
+   escreve "Ativos S.A" e o cadastro "ATIVOS S.A.", e sem isso os dois viram
+   réus diferentes e os contatos não aparecem. */
+const chaveNome = s => String(s || '').toUpperCase().normalize('NFD').replace(/[^A-Z0-9]/g, '');
+
+/* Contatos do réu e do escritório escolhidos.
+   Mostra e-mails E telefones — a operadora escreve por e-mail e liga no mesmo
+   atendimento, e antes só via o canal marcado no campo "forma de contato".
+   O canal escolhido vem primeiro, que é o que ela vai usar agora. */
 function pintaContatos() {
   const cx = $('caixa-contatos');
   if (!cx) return;
-  const canal = (($('f-canal') || {}).value) || rascunho.canal;
+  const canal   = (($('f-canal') || {}).value) || rascunho.canal;
   const nomeReu = (($('f-reu') || {}).value) || rascunho.reu;
   const nomeEsc = (($('f-escritorio') || {}).value) || rascunho.escritorio_adverso;
-  const chave = s => String(s || '').toUpperCase().normalize('NFD').replace(/[^A-Z0-9]/g, '');
 
-  const dono = (lista, nome, tipo) => {
-    const alvo = lista.find(x => chave(x.nome) === chave(nome));
-    return alvo ? CONTATOS.filter(c => c.dono_tipo === tipo && c.dono_id === alvo.id) : [];
+  const acha = (lista, nome) => nome
+    ? lista.find(x => chaveNome(x.nome) === chaveNome(nome)) : null;
+  const donoReu = acha(REUS, nomeReu);
+  const donoEsc = acha(ESCRS, nomeEsc);
+  const de = (dono, tipo, rot) => dono
+    ? CONTATOS.filter(c => c.dono_tipo === tipo && c.dono_id === dono.id)
+              .map(c => ({ ...c, de: rot })) : [];
+
+  const todos  = [...de(donoEsc, 'escritorio', 'escritório'), ...de(donoReu, 'parte', 'réu')];
+  const emails = todos.filter(c => c.canal === 'E-MAIL');
+  const fones  = todos.filter(c => c.canal !== 'E-MAIL');
+  const grupos = (canal === 'E-MAIL' ? [['E-mails', emails, ', '], ['Telefones', fones, ' / ']]
+                                     : [['Telefones', fones, ' / '], ['E-mails', emails, ', ']])
+    .filter(g => g[1].length);
+
+  /* Atalho para o cadastro, em outra aba e já no registro certo. Réu que
+     ainda não existe abre o formulário de novo réu com o nome preenchido. */
+  const atalho = (qual, lista, nome, rot) => {
+    if (!nome) return '';
+    const alvo = acha(lista, nome);
+    const q = alvo ? `aba=${qual}&id=${alvo.id}` : `aba=${qual}&nome=${encodeURIComponent(nome)}`;
+    return `<a class="bt-mini" href="/cadastros?${q}" target="_blank" rel="noopener"
+       title="${alvo ? 'Abrir' : 'Cadastrar'} ${esc(nome)} em outra aba">${rot} &#8599;</a>`;
   };
-  const querEmail = canal === 'E-MAIL';
-  const filtra = l => l.filter(c => querEmail ? c.canal === 'E-MAIL' : c.canal !== 'E-MAIL');
 
-  const doReu = filtra(dono(REUS, nomeReu, 'parte')).map(c => ({ ...c, de: 'réu' }));
-  const doEsc = filtra(dono(ESCRS, nomeEsc, 'escritorio')).map(c => ({ ...c, de: 'escritório' }));
-  const todos = [...doEsc, ...doReu];
+  const linha = c => `<div class="contato-item">
+    <span class="de">${c.de}</span>
+    <span class="v">${esc(c.valor)}${c.rotulo ? ` · ${esc(c.rotulo)}` : ''}</span>
+    <button type="button" class="copiar" data-copiar="${esc(c.valor)}">copiar</button>
+  </div>`;
 
-  cx.innerHTML = `<h4>Contatos para esta tratativa</h4>
-    ${todos.length
-      ? todos.map(c => `<div class="contato-item">
-          <span class="de">${c.de}</span>
-          <span class="v">${esc(c.valor)}${c.rotulo ? ` · ${esc(c.rotulo)}` : ''}</span>
-          <button class="copiar" data-copiar="${esc(c.valor)}">copiar</button>
-        </div>`).join('')
-      : `<div class="sem-contato">Nenhum contato de ${querEmail ? 'e-mail' : 'telefone'} cadastrado
-         para ${nomeReu || 'este réu'}${nomeEsc ? ' nem para ' + esc(nomeEsc) : ''}.
-         Cadastre em <a href="/cadastros" style="color:var(--s4)">Cadastros</a> e eles aparecem aqui.</div>`}`;
+  cx.innerHTML = `
+    <div class="cab-contatos">
+      <h4>Contatos para esta tratativa</h4>
+      ${atalho('reus', REUS, nomeReu, 'Réu')}
+      ${atalho('escritorios', ESCRS, nomeEsc, 'Escritório')}
+      <button type="button" class="bt-mini" id="recarregar-contatos"
+        title="Buscar de novo o que foi editado no cadastro">atualizar</button>
+    </div>
+    ${grupos.length ? grupos.map(([rot, l, junta]) => `
+      <div class="contato-grupo">
+        <div class="rot-grupo"><span>${rot} — ${l.length}</span><i class="traco"></i>
+          ${l.length > 1 ? `<button type="button" class="copiar"
+            data-copiar="${esc(l.map(c => c.valor).join(junta))}">copiar todos</button>` : ''}
+        </div>
+        ${l.map(linha).join('')}
+      </div>`).join('')
+      : `<div class="sem-contato">Nenhum contato cadastrado
+         para ${esc(nomeReu || 'este réu')}${nomeEsc ? ' nem para ' + esc(nomeEsc) : ''}.
+         Use os botões acima para cadastrar — eles abrem em outra aba, e ao voltar
+         para cá os contatos aparecem sozinhos.</div>`}`;
 
-  cx.querySelectorAll('[data-copiar]').forEach(b => b.onclick = () => {
-    navigator.clipboard?.writeText(b.dataset.copiar);
-    b.textContent = 'copiado'; setTimeout(() => b.textContent = 'copiar', 1500);
+  cx.querySelectorAll('[data-copiar]').forEach(b => {
+    const rotulo = b.textContent;
+    b.onclick = () => {
+      copia(b.dataset.copiar);
+      b.textContent = 'copiado'; b.classList.add('feito');
+      setTimeout(() => { b.textContent = rotulo; b.classList.remove('feito'); }, 1500);
+    };
   });
+  $('recarregar-contatos').onclick = () => protege(() => atualizaCadastros());
 }
+
+/* navigator.clipboard só existe em contexto seguro; o textarea escondido é o
+   caminho que funciona em qualquer navegador que a equipe use. */
+function copia(texto) {
+  if (navigator.clipboard && window.isSecureContext)
+    return navigator.clipboard.writeText(texto).catch(() => porTextarea(texto));
+  porTextarea(texto);
+}
+function porTextarea(texto) {
+  const t = document.createElement('textarea');
+  t.value = texto;
+  t.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); } catch (e) { /* nada a fazer */ }
+  t.remove();
+}
+
+/* ---------- cadastro editado em outra aba ----------
+   A operadora abre o cadastro do réu numa aba, corrige o e-mail e volta.
+   Sem isto, ela teria que fechar a tratativa e digitar tudo de novo para ver
+   o contato novo. O rascunho não é tocado: o que já foi digitado continua. */
+let atualizandoCadastros = false;
+async function atualizaCadastros() {
+  if (atualizandoCadastros) return;
+  atualizandoCadastros = true;
+  try {
+    const [r, e, c] = await Promise.all([
+      ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
+      ler('escritorio_adverso', 'select=id,nome,chave&order=nome.asc'),
+      lerTudo('contato')
+    ]);
+    const nomes = l => l.map(x => x.nome).join('');
+    const listaMudou = nomes(r) !== nomes(REUS) || nomes(e) !== nomes(ESCRS);
+    REUS = r; ESCRS = e; CONTATOS = c;
+    if (!rascunho) return;
+    // Se réus ou escritórios entraram ou saíram, os seletores precisam ser
+    // refeitos. coleta() guarda o que está na tela antes, e pintaForm()
+    // redesenha a partir do rascunho — nada digitado se perde.
+    if (listaMudou) { coleta(); pintaForm(); } else pintaContatos();
+  } finally { atualizandoCadastros = false; }
+}
+
+/* O aviso vem pelo localStorage porque o evento 'storage' dispara nas OUTRAS
+   abas, e é exatamente isso que queremos: quem salvou já viu o resultado. */
+window.addEventListener('storage', ev => {
+  if (ev.key === 'andon.cadastro_mudou') atualizaCadastros().catch(() => { });
+});
 
 function coleta() {
   const v = id => { const el = $(id); return el ? el.value : undefined; };
@@ -766,7 +859,7 @@ function ligaForm() {
   if (st2) st2.onchange = () => { coleta(); pintaForm(); };
   const fp = $('f3-forma');
   if (fp) fp.onchange = () => { coleta(); pintaForm(); };
-  if (etapa === 1) pintaContatos();
+  pintaContatos();
 }
 
 function validaIdentificacao() {

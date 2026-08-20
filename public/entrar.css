@@ -4,15 +4,15 @@
 .portao{flex:1;display:grid;place-items:center;padding:28px 20px}
 
 .cartao-entrar{width:100%;max-width:420px;
-  background:linear-gradient(168deg,rgba(255,255,255,.055),rgba(255,255,255,.014));
+  background:linear-gradient(168deg,var(--cx-1),var(--cx-2));
   border:1px solid var(--line);border-radius:20px;padding:34px 32px 26px;
   box-shadow:var(--elev-3);position:relative;overflow:hidden}
 .cartao-entrar::before{content:'';position:absolute;inset:0 0 auto 0;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent)}
+  background:linear-gradient(90deg,transparent,var(--brilho),transparent)}
 
 .marca-entrar{display:flex;align-items:center;gap:12px;margin-bottom:26px}
 .marca-entrar svg{width:44px;height:44px;border-radius:12px;
-  box-shadow:0 0 0 1px rgba(197,222,185,.2),0 8px 22px -8px rgba(197,222,185,.45)}
+  box-shadow:0 0 0 1px var(--line-2)}
 .marca-entrar .n{font-family:'Sora',sans-serif;font-weight:800;font-size:21px;
   letter-spacing:.02em;line-height:1.05}
 .marca-entrar .s{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;

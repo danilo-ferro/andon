@@ -1,16 +1,17 @@
-/* ANDON · Acordos — esteira, lista e o formulário de três etapas */
+/* ANDON · Acordos — esteira, lista e o formulário de três etapas
+   Toda cor sai das variáveis de tema declaradas em andon.css. */
 
 .gav-larga{width:min(760px,100%)}
 
 /* ---- Filtros ---- */
 .filtros-cx{max-width:2100px;margin:16px auto 0;padding:0 20px}
 .filtros-linha{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;
-  background:linear-gradient(165deg,rgba(255,255,255,.05),rgba(255,255,255,.013));
+  background:linear-gradient(165deg,var(--cx-1),var(--cx-2));
   border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .filtro{display:flex;flex-direction:column;gap:4px;min-width:132px}
 .filtro > span{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
   color:var(--txt-3);font-family:'JetBrains Mono',monospace}
-.filtro select,.filtro input{background:#0C1119;border:1px solid var(--line);
+.filtro select,.filtro input{background:var(--campo-bg);border:1px solid var(--line);
   border-radius:8px;padding:6px 9px;color:var(--txt);font-size:12.5px;width:100%}
 .filtro select:focus,.filtro input:focus{outline:none;border-color:var(--s4)}
 .filtros-linha .limpar{margin-left:auto;align-self:center}
@@ -21,12 +22,12 @@
 /* ---- Kanban ---- */
 .esteira-cols{display:flex;gap:13px;overflow-x:auto;padding:4px 2px 18px;align-items:flex-start}
 .col-k{width:330px;flex-shrink:0;border-radius:14px;border:1px solid var(--line);
-  background:linear-gradient(170deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+  background:linear-gradient(170deg,var(--cx-1),var(--cx-2));
   display:flex;flex-direction:column;max-height:calc(100vh - 290px)}
 .col-k .topo-col{padding:13px 14px;border-bottom:1px solid var(--line);position:sticky;top:0;
-  background:rgba(10,14,21,.86);backdrop-filter:blur(10px);border-radius:14px 14px 0 0;z-index:1}
+  background:var(--col-topo-bg);backdrop-filter:blur(10px);border-radius:14px 14px 0 0;z-index:1}
 .col-k .l1{display:flex;align-items:center;gap:8px}
-.col-k .pt{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 10px 1px currentColor}
+.col-k .pt{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .col-k b{font-size:12.5px;font-weight:600;flex:1;min-width:0}
 .col-k .qt{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
   background:var(--surf-2);border-radius:99px;padding:2px 9px}
@@ -35,13 +36,13 @@
 .col-k .itens{padding:11px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
 
 /* Card maior e legível — o do kanban antigo era pequeno demais para trabalhar. */
-.card-t{background:linear-gradient(165deg,rgba(255,255,255,.06),rgba(255,255,255,.015));
+.card-t{background:linear-gradient(165deg,var(--cx-1),var(--cx-2));
   border:1px solid var(--line);border-radius:11px;padding:13px 14px;cursor:pointer;
   transition:.18s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;
   flex:0 0 auto}
 .card-t::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c,transparent)}
 .card-t:hover{transform:translateY(-2px) translateX(1px);border-color:var(--line-2);
-  box-shadow:0 12px 28px -12px rgba(0,0,0,.9)}
+  box-shadow:var(--elev-carta)}
 .card-t .proc{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--txt-3);
   display:flex;gap:7px;align-items:center;margin-bottom:6px}
 .card-t .partes{font-size:13.5px;font-weight:600;line-height:1.35;margin-bottom:4px}
@@ -52,7 +53,7 @@
   color:var(--txt-3);margin-bottom:3px}
 .card-t .linha-dado b{color:var(--txt-2);font-weight:500}
 .card-t .rodape{display:flex;gap:8px;align-items:center;margin-top:10px;
-  padding-top:9px;border-top:1px solid rgba(255,255,255,.06)}
+  padding-top:9px;border-top:1px solid var(--line-fraca)}
 .card-t .rodape .op{font-size:11px;color:var(--txt-2);flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-t .cif{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;
@@ -60,25 +61,25 @@
 .card-t .selos{display:flex;flex-wrap:wrap;gap:4px}
 .tempo{font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;
   border-radius:99px;padding:2px 7px;margin-left:auto;white-space:nowrap}
-.tempo.v{background:rgba(34,197,94,.16);color:var(--s5)}
-.tempo.a{background:rgba(245,158,11,.16);color:var(--warn)}
-.tempo.r{background:rgba(251,113,133,.16);color:var(--bad)}
+.tempo.v{background:var(--ok-bg);color:var(--ok-tx)}
+.tempo.a{background:var(--at-bg);color:var(--at-tx)}
+.tempo.r{background:var(--pr-bg);color:var(--pr-tx)}
 
 /* ---- Lista ---- */
 .tb-rolagem{overflow-x:auto;border:1px solid var(--line);border-radius:12px;
-  background:linear-gradient(165deg,rgba(255,255,255,.04),rgba(255,255,255,.012))}
+  background:linear-gradient(165deg,var(--cx-1),var(--cx-2))}
 .tb-lista{width:100%;border-collapse:collapse;min-width:940px}
 .tb-lista th{text-align:left;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
   color:var(--txt-3);font-family:'JetBrains Mono',monospace;font-weight:600;
   padding:12px 14px;border-bottom:1px solid var(--line);position:sticky;top:0;
-  background:rgba(10,14,21,.94);backdrop-filter:blur(10px)}
-.tb-lista td{padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.045);font-size:12.5px}
+  background:var(--th-bg);backdrop-filter:blur(10px)}
+.tb-lista td{padding:11px 14px;border-bottom:1px solid var(--line-fraca);font-size:12.5px}
 .tb-lista tbody tr{cursor:pointer;transition:.14s}
 .tb-lista tbody tr:hover{background:var(--surf-1)}
 .tb-lista td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap}
 .tb-lista .mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt-3)}
 .marcador{display:inline-flex;align-items:center;gap:6px}
-.marcador i{width:8px;height:8px;border-radius:50%;box-shadow:0 0 8px currentColor}
+.marcador i{width:8px;height:8px;border-radius:50%}
 
 /* ---- Formulário de três etapas ---- */
 .passos{display:flex;gap:6px;align-items:center;margin-top:12px;flex-wrap:wrap}
@@ -88,7 +89,7 @@
 .passo .num{width:19px;height:19px;border-radius:50%;background:var(--surf-2);
   display:grid;place-items:center;font-size:10.5px;font-family:'JetBrains Mono',monospace}
 .passo.on{color:var(--txt);background:var(--surf-2);border-color:var(--line-2)}
-.passo.on .num{background:var(--marca);color:#0B1410}
+.passo.on .num{background:var(--marca);color:var(--sobre-marca)}
 .passo.travado{opacity:.42;cursor:not-allowed}
 .passo.livre{cursor:pointer}
 .passo.livre:hover{color:var(--txt)}
@@ -98,24 +99,41 @@
 .etapa.on{display:block}
 .rodape-form{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;align-items:center;
   position:sticky;bottom:0;padding:14px 0 4px;
-  background:linear-gradient(180deg,transparent,#080B11 26%)}
+  background:linear-gradient(180deg,transparent,var(--gav-fade) 26%)}
 .rodape-form .dir{margin-left:auto;display:flex;gap:10px}
 .bt[disabled]{opacity:.4;cursor:not-allowed}
 
-.caixa-contatos{background:rgba(20,184,166,.06);border:1px solid rgba(20,184,166,.22);
+/* ---- Contatos para esta tratativa ---- */
+.caixa-contatos{background:var(--info-bg);border:1px solid var(--info-bd);
   border-radius:11px;padding:13px 15px;margin-top:6px}
+.caixa-contatos .cab-contatos{display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;margin-bottom:10px}
 .caixa-contatos h4{font-size:10px;letter-spacing:.15em;text-transform:uppercase;
-  color:var(--s4);font-family:'JetBrains Mono',monospace;font-weight:600;margin:0 0 10px}
+  color:var(--s4);font-family:'JetBrains Mono',monospace;font-weight:600;margin:0;
+  flex:1;min-width:150px}
+/* Atalhos para o cadastro: abrem em outra aba, direto no registro escolhido. */
+.bt-mini{font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:7px;
+  border:1px solid var(--line-2);color:var(--txt-2);background:var(--surf-1);
+  text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:.14s;
+  white-space:nowrap}
+.bt-mini:hover{color:var(--txt);border-color:var(--txt-3);background:var(--surf-2)}
+.contato-grupo{margin-bottom:8px}
+.contato-grupo:last-of-type{margin-bottom:0}
+.contato-grupo .rot-grupo{display:flex;align-items:center;gap:8px;
+  font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
+  font-family:'JetBrains Mono',monospace;margin:8px 0 2px}
+.contato-grupo .rot-grupo .traco{flex:1;height:1px;background:var(--line)}
 .contato-item{display:flex;gap:9px;align-items:center;padding:6px 0;font-size:12.5px}
 .contato-item .de{font-size:10px;color:var(--txt-3);white-space:nowrap}
 .contato-item .v{flex:1;min-width:0;word-break:break-all}
 .contato-item .copiar{font-size:10.5px;color:var(--txt-3);padding:3px 8px;border-radius:6px;
-  border:1px solid var(--line)}
+  border:1px solid var(--line);white-space:nowrap}
 .contato-item .copiar:hover{color:var(--txt);border-color:var(--line-2)}
+.contato-item .copiar.feito{color:var(--ok-tx);border-color:var(--ok-bd)}
 .sem-contato{font-size:12px;color:var(--txt-3);line-height:1.6}
 
 .parcelas-tb{width:100%;border-collapse:collapse;margin-top:8px}
-.parcelas-tb td{padding:6px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.05)}
+.parcelas-tb td{padding:6px 0;font-size:12px;border-bottom:1px solid var(--line-fraca)}
 .parcelas-tb td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600}
 
 

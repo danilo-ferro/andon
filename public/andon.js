@@ -39,17 +39,32 @@ let VPAINEL=null, VPREVISAO=[], VCONC=[], VCONCPROC=[], VCONCPAR=[], VRECMES=[];
 
 /* A leitura do banco exige sessao. A chave publicavel sozinha nao le mais
    nada — e o que impede quem achar o repositorio de ler a base inteira.
-   Toda chamada precisa levar o token de quem entrou. */
+   Toda chamada precisa levar o token de quem entrou.
+
+   Pedir o token ao guarda, e nao ler direto da sessao, e o que faz a
+   renovacao acontecer sozinha: se o token esta vencendo, ele renova antes
+   de responder. Sem isso, o painel aberto por mais de uma hora caia com
+   "sessao expirou" no primeiro dado que fosse buscar. */
 function autorizacao(){
-  const s = window.ANDON_SESSAO && window.ANDON_SESSAO.ler();
-  return 'Bearer ' + ((s && s.access_token) || SB.key);
+  const g = window.ANDON_SESSAO;
+  if(g && g.token) return g.token().then(t=>'Bearer '+t, ()=>'Bearer '+SB.key);
+  const s = g && g.ler();
+  return Promise.resolve('Bearer ' + ((s && s.access_token) || SB.key));
+}
+/* Uma recusa nao teve efeito no banco, entao repetir e seguro. */
+async function comToken(url, extra, jaRenovou){
+  const r = await fetch(url, { headers:{apikey:SB.key, Authorization:await autorizacao(), ...(extra||{})} });
+  if((r.status===401||r.status===403) && !jaRenovou){
+    const g = window.ANDON_SESSAO;
+    const novo = g && g.renovar ? await g.renovar().catch(()=>null) : null;
+    if(novo) return comToken(url, extra, true);
+  }
+  return r;
 }
 
 async function sb(tabela, params){
   const qs = new URLSearchParams({select:'*', ...(params||{})}).toString();
-  const r = await fetch(`${SB.url}/rest/v1/${tabela}?${qs}`, {
-    headers:{apikey:SB.key, Authorization:autorizacao(), Prefer:'count=exact'}
-  });
+  const r = await comToken(`${SB.url}/rest/v1/${tabela}?${qs}`, {Prefer:'count=exact'});
   if(r.status===401||r.status===403) throw new Error('SESSAO');
   if(!r.ok) throw new Error(tabela+': '+r.status+' '+(await r.text()).slice(0,120));
   return r.json();
@@ -60,8 +75,7 @@ async function sbTudo(tabela, ordem){
   for(;;){
     const qs = new URLSearchParams({select:'*', order:ordem||'id.asc',
       offset:String(de), limit:'1000'}).toString();
-    const r = await fetch(`${SB.url}/rest/v1/${tabela}?${qs}`, {
-      headers:{apikey:SB.key, Authorization:autorizacao()}});
+    const r = await comToken(`${SB.url}/rest/v1/${tabela}?${qs}`);
     if(r.status===401||r.status===403) throw new Error('SESSAO');
     if(!r.ok) throw new Error(tabela+': '+r.status);
     const l = await r.json(); out.push(...l);

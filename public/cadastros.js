@@ -68,6 +68,33 @@ const TELAS = [
 ].filter(t => !t.soGestor || ehGestor());
 aba = TELAS[0].id;
 
+/* Chegada por link vindo da tela de tratativa:
+   /cadastros?aba=reus&id=12   abre o cadastro daquele réu
+   /cadastros?aba=reus&nome=X  abre o formulário de novo réu já com o nome
+   Sem isso a operadora teria que achar o registro na lista à mão, com a
+   tratativa aberta em outra aba esperando. */
+const PARAM = new URLSearchParams(location.search);
+const PEDIDO = {
+  aba:  PARAM.get('aba') || '',
+  id:   +PARAM.get('id') || 0,
+  nome: PARAM.get('nome') || ''
+};
+if (TELAS.some(t => t.id === PEDIDO.aba)) aba = PEDIDO.aba;
+
+/* Quem é gestor volta para o painel; quem só trabalha em Acordos volta para
+   Acordos — mandar a operadora para o painel do escritório seria jogá-la
+   numa tela que ela nem pode abrir. */
+const VOLTA = () => ehGestor() ? { url: '/', rotulo: 'Painel' }
+                               : { url: '/acordos', rotulo: 'Acordos' };
+
+/* Aviso para as outras abas: a tratativa aberta em outra aba recarrega os
+   contatos sozinha. O valor muda sempre para o evento disparar de novo. */
+let ping = 0;
+function avisaOutrasAbas() {
+  try { localStorage.setItem('andon.cadastro_mudou', Date.now() + '.' + (++ping)); }
+  catch (e) { /* navegador sem localStorage: só não avisa */ }
+}
+
 async function carrega() {
   const [p, r, e, c] = await Promise.all([
     ler('pessoa', 'select=*&order=ativo.desc,nome.asc'),
@@ -231,7 +258,9 @@ function telaParte(qual) {
       const k = contatosDe(c.dono, x.id);
       const em = k.filter(y => y.canal === 'E-MAIL').length;
       const te = k.length - em;
-      return `<article class="reg ${x.ativo === false ? 'off' : ''}" data-editar="${qual}" data-id="${x.id}">
+      return `<article class="reg ${x.ativo === false ? 'off' : ''}
+        ${PEDIDO.id === x.id && PEDIDO.aba === qual ? 'alvo' : ''}"
+        data-editar="${qual}" data-id="${x.id}">
         <div class="corpo">
           <div class="nome">${esc(x.nome)}</div>
           <div class="meta">
@@ -246,7 +275,9 @@ function telaParte(qual) {
 
 function formParte(qual, x) {
   const c = CFG[qual];
-  const novo = !x;
+  // Sem id é cadastro novo, mesmo vindo com nome preenchido: é assim que o
+  // link da tratativa abre um réu que ainda não existe, já com o nome dele.
+  const novo = !x || !x.id;
   x = x || { nome: '', documento: '', observacoes: '', ativo: true };
   const k = novo ? [] : contatosDe(c.dono, x.id);
 
@@ -372,6 +403,7 @@ async function protege(fn) {
 async function recarrega(msg, tipo) {
   await carrega();
   desenha();
+  avisaOutrasAbas();
   if (msg) alerta(msg, tipo || 'info');
 }
 
@@ -478,8 +510,11 @@ function formLogin() {
    ROTEADOR
    ================================================================== */
 function desenha() {
-  $('nav').innerHTML = TELAS.map(t =>
-    `<button class="${t.id === aba ? 'on' : ''}" data-aba="${t.id}">${t.rotulo}</button>`).join('');
+  const v = VOLTA();
+  $('nav').innerHTML =
+    `<a class="nav-link voltar" href="${v.url}">&#8592; Voltar para ${v.rotulo}</a>`
+    + TELAS.map(t =>
+      `<button class="${t.id === aba ? 'on' : ''}" data-aba="${t.id}">${t.rotulo}</button>`).join('');
   document.querySelectorAll('[data-aba]').forEach(b => b.onclick = () => {
     aba = b.dataset.aba; busca = ''; $('q').value = ''; desenha();
   });
@@ -505,12 +540,29 @@ $('fx').onclick = fechaGaveta;
 $('veu').onclick = fechaGaveta;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
 
+/* Abre direto o registro pedido pelo link da tratativa. */
+function abreOPedido() {
+  if (!PEDIDO.aba || !CFG[PEDIDO.aba]) return;
+  const lista = CFG[PEDIDO.aba].lista();
+  if (PEDIDO.id) {
+    const achado = lista.find(x => x.id === PEDIDO.id);
+    if (achado) return formParte(PEDIDO.aba, achado);
+  }
+  if (PEDIDO.nome) {
+    const chave = s => String(s || '').toUpperCase().normalize('NFD').replace(/[^A-Z0-9]/g, '');
+    const igual = lista.find(x => chave(x.nome) === chave(PEDIDO.nome));
+    // Já existe com outra grafia: edita o que existe em vez de criar um duplicado.
+    return formParte(PEDIDO.aba, igual || { nome: PEDIDO.nome, observacoes: '', ativo: true });
+  }
+}
+
 (async function inicia() {
   $('t-' + aba).innerHTML = '<div class="carregando">Carregando…</div>';
   pintaSessao();
   try {
     await carrega();
     desenha();
+    abreOPedido();
   } catch (e) {
     $('t-' + aba).innerHTML = `<div class="vazio">Não consegui ler o banco.<br><br>${esc(e.message)}</div>`;
   }

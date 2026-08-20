@@ -321,12 +321,11 @@ function aro(pcts, tam){
     const len = fatia/100*C;
     const el = `<circle cx="${tam/2}" cy="${tam/2}" r="${R}" fill="none" stroke="${p.cor}"
       stroke-width="13" stroke-linecap="round" stroke-dasharray="${len} ${C}"
-      stroke-dashoffset="${-off}" transform="rotate(-90 ${tam/2} ${tam/2})"
-      style="filter:drop-shadow(0 0 8px ${p.cor}aa)"/>`;
+      stroke-dashoffset="${-off}" transform="rotate(-90 ${tam/2} ${tam/2})"/>`;
     off += len; return el;
   }).join('');
   return `<svg width="${tam}" height="${tam}" viewBox="0 0 ${tam} ${tam}">
-    <circle cx="${tam/2}" cy="${tam/2}" r="${R}" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="13"/>
+    <circle cx="${tam/2}" cy="${tam/2}" r="${R}" fill="none" stroke="var(--trilho-bg)" stroke-width="13"/>
     ${arcos}</svg>`;
 }
 
@@ -386,13 +385,12 @@ function telaPainel(){
     const h1 = cm.v[i]/maxb*100, h2 = ca.v[i]/maxb*100, h3 = ct.v[i]/maxb*100;
     return `<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px">
       <div style="height:148px;width:100%;display:flex;align-items:flex-end;justify-content:center;position:relative">
-        <div style="position:absolute;bottom:${hm}%;left:0;right:0;border-top:1px dashed rgba(255,255,255,.22)"></div>
+        <div style="position:absolute;bottom:${hm}%;left:0;right:0;border-top:1px dashed var(--line-2)"></div>
         <div style="width:68%;display:flex;flex-direction:column-reverse;${fut?'opacity:.22':''}">
           <div style="height:${h1}px;min-height:${cm.v[i]?2:0}px;background:linear-gradient(180deg,#22D3EE,#0891B2);
-            border-radius:0 0 3px 3px;box-shadow:0 0 14px -2px #06B6D4"
+            border-radius:0 0 3px 3px"
             title="MLE ${brl2(cm.v[i])}"></div>
-          <div style="height:${h2}px;min-height:${ca.v[i]?2:0}px;background:linear-gradient(180deg,#BEF264,#84CC16);
-            box-shadow:0 0 14px -2px #A3E635" title="Acordos ${brl2(ca.v[i])}"></div>
+          <div style="height:${h2}px;min-height:${ca.v[i]?2:0}px;background:linear-gradient(180deg,#BEF264,#84CC16); title="Acordos ${brl2(ca.v[i])}"></div>
           <div style="height:${h3}px;min-height:${ct.v[i]?2:0}px;background:linear-gradient(180deg,#FCD34D,#F59E0B);
             border-radius:3px 3px 0 0" title="Trabalhista ${brl2(ct.v[i])}"></div>
         </div>
@@ -454,7 +452,7 @@ function telaPainel(){
               <span class="tx">Recebido em conta</span><span class="vl">${brl(M.recebido)}</span></div>
             <div class="leg-l"><span class="pt" style="background:#06B6D4;color:#06B6D4"></span>
               <span class="tx">Plantado na execução</span><span class="vl">${brl(M.plantado)}</span></div>
-            <div class="leg-l"><span class="pt" style="background:rgba(255,255,255,.14);box-shadow:none"></span>
+            <div class="leg-l"><span class="pt" style="background:var(--line-2)"></span>
               <span class="tx">Falta para o objetivo</span><span class="vl">${brl(Math.max(CFG.meta_objetivo-M.alcancado,0))}</span></div>
             <div class="trilho" style="margin-top:4px">
               <i style="width:${Math.min(M.pctObj,100)}%;background:linear-gradient(90deg,#A3E635,#06B6D4)"></i></div>
@@ -794,7 +792,7 @@ function telaFinanceiro(){
 
   const prevBloco = M.previsao.map(p=>`<tr>
     <td><span class="pt" style="display:inline-block;width:8px;height:8px;border-radius:50%;
-      background:${p.cor};box-shadow:0 0 8px ${p.cor};margin-right:7px"></span>${esc(p.nome)}
+      background:${p.cor};margin-right:7px"></span>${esc(p.nome)}
       <div class="p">${p.qtd} valores · ${p.conf}% de confiança · ~${p.prazo} dias</div></td>
     <td class="n">${brl(p.pond)}<div class="p">de ${brl(p.bruto)}</div></td></tr>`).join('');
 
@@ -1023,21 +1021,21 @@ function telaBusca(termo){
           <span style="margin-left:auto;font-size:11px;color:var(--txt-3)">${esc(cap(ref.adv||''))}</span>
         </div>
         ${le.map(x=>`<div class="lr"><span class="pt" style="width:8px;height:8px;border-radius:50%;
-            background:${fE(x.st).cor};box-shadow:0 0 8px ${fE(x.st).cor}"></span>
+            background:${fE(x.st).cor}"></span>
           <b style="width:78px;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
             font-family:'JetBrains Mono',monospace">Execução</b>
           <span>${esc(fE(x.st).nome)}</span>
           <span class="mono" style="margin-left:auto;font-weight:700">${brl2(x.valor)}</span>
           <button class="bt" data-abrir="E" data-id="${x.id}">Abrir</button></div>`).join('')}
         ${lt.map(x=>`<div class="lr"><span class="pt" style="width:8px;height:8px;border-radius:50%;
-            background:${fA(x.st).cor};box-shadow:0 0 8px ${fA(x.st).cor}"></span>
+            background:${fA(x.st).cor}"></span>
           <b style="width:78px;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
             font-family:'JetBrains Mono',monospace">Tratativa</b>
           <span>${esc(fA(x.st).nome)} · ${esc(x.reu)}</span>
           <span class="mono" style="margin-left:auto;color:var(--txt-3);font-size:11px">${dtb(x.data)}</span>
           <button class="bt" data-abrir="T" data-id="${x.id}">Abrir</button></div>`).join('')}
         ${lf.map(x=>`<div class="lr"><span class="pt" style="width:8px;height:8px;border-radius:50%;
-            background:#A3E635;box-shadow:0 0 8px #A3E635"></span>
+            background:#A3E635"></span>
           <b style="width:78px;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);
             font-family:'JetBrains Mono',monospace">Faturado</b>
           <span>${x.rec==='SIM'?'Recebido':'Aguardando pagamento'} · ${esc(x.orig)}</span>
@@ -1064,7 +1062,7 @@ function abre(tipo,id){
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
         font-family:'JetBrains Mono',monospace">Execução · controle ${esc(e.ctrl)||'—'}</div>
       <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(e.proc)}</div>
-      <div style="margin-top:9px"><span style="background:${f.cor};color:#04070C;padding:3px 11px;
+      <div style="margin-top:9px"><span style="background:${f.cor};color:var(--sobre-cor);padding:3px 11px;
         border-radius:99px;font-size:11px;font-weight:700">${esc(f.nome)}</span></div>`;
     h = `<div class="bloco"><h4>Valor</h4>
         <div class="mono" style="font-size:27px;font-weight:700;letter-spacing:-.04em">${brl2(e.valor)}</div>
@@ -1095,7 +1093,7 @@ function abre(tipo,id){
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
         font-family:'JetBrains Mono',monospace">Tratativa · ${esc(x.fase)}-sentença</div>
       <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(x.proc)}</div>
-      <div style="margin-top:9px"><span style="background:${f.cor};color:#04070C;padding:3px 11px;
+      <div style="margin-top:9px"><span style="background:${f.cor};color:var(--sobre-cor);padding:3px 11px;
         border-radius:99px;font-size:11px;font-weight:700">${esc(f.nome)}</span></div>`;
     h = `<div class="bloco"><h4>Partes</h4>
         <div class="it"><div class="r">Autor · nosso cliente</div><div class="v">${esc(cap(x.autor))}</div></div>
@@ -1121,7 +1119,7 @@ function abre(tipo,id){
     t = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--txt-3);
         font-family:'JetBrains Mono',monospace">Acordo faturado · ${esc(x.orig)} · ${esc(x.fase)}</div>
       <div class="mono" style="font-size:14px;font-weight:700;margin-top:3px">${esc(x.proc)}</div>
-      <div style="margin-top:9px"><span style="background:${x.rec==='SIM'?'#A3E635':'#F59E0B'};color:#04070C;
+      <div style="margin-top:9px"><span style="background:${x.rec==='SIM'?'#A3E635':'#F59E0B'};color:var(--sobre-cor);
         padding:3px 11px;border-radius:99px;font-size:11px;font-weight:700">
         ${x.rec==='SIM'?'Recebido':'Aguardando pagamento'}</span></div>`;
     const rota=[{r:'Minuta assinada',d:x.dmin,c:'#6366F1'},{r:'Protocolado',d:x.dprot,c:'#06B6D4'},

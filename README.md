@@ -28,8 +28,13 @@ COMECE-AQUI.md     leia este primeiro
   deploy.yml       a cada push, manda o Supabase se atualizar
 
 public/            front, sem build — HTML, CSS e JS puros
-  index.html
-  andon.css
+  entrar.*         tela de login
+  guarda.js        sem sessão válida, nada é desenhado
+  tema.js          cor do sistema, por pessoa — escuro, grafite, claro, pastel
+  index.*          painel principal (gestão)
+  acordos.*        painel de gestão, esteira, tratativas e o formulário
+  cadastros.*      equipe, réus, escritórios e contatos
+  andon.css        paletas e estilos compartilhados por todas as telas
   andon.js         lê o Supabase por REST; os fatos vêm de views, não daqui
 
 supabase/
@@ -136,6 +141,24 @@ e-mail errado não adiantaria nada, porque ele voltaria no push seguinte.
 Papel é definido na tela de Equipe, não no login: mudar o papel de alguém não
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
+
+## Cores
+
+Quatro temas: **escuro** (padrão), **grafite**, **claro** e **pastel**. Cada
+pessoa escolhe o seu no botão *Tema*, no alto da tela. A escolha vale na hora
+no navegador e é gravada na pessoa, para acompanhar quem troca de máquina.
+
+Escrever em `pessoa` é coisa de gestor e continua sendo: quem grava o tema é a
+função `definir_tema`, que só toca na coluna do tema da própria pessoa. Uma
+política de RLS aberta na linha inteira deixaria a operadora se promover a
+gestora mexendo em `papeis`.
+
+Não existe cor solta numa regra de CSS — toda cor sai de uma variável declarada
+nos quatro temas. Regra nova com cor escrita à mão volta a quebrar o tema claro.
+
+A sinalização continua: verde, amarelo e vermelho dizem a mesma coisa de antes.
+O que saiu foi o brilho difuso — a equipe reprovou o "neon" por unanimidade, e o
+significado não dependia dele.
 
 ## Próximos passos
 

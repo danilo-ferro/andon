@@ -136,6 +136,13 @@ const operadores = () => PESSOAS.filter(p => p.ativo && (p.papeis || []).include
 const fase = id => FASES.find(x => x.id === id) || { nome: id || '—', cor: '#5B6878' };
 const parcelasDe = id => PARCELAS.filter(p => p.tratativa_id === id);
 
+/* Acordo fechado, recusado, sem retorno, improcedente: o caso acabou.
+   "Parado há 300 dias" aí não é atraso — é um caso que não tem mais para onde
+   ir. O relógio só corre para quem ainda pode andar. */
+const finalizada = t => !!fase(t.status).finalizada;
+/* Dias parados, ou null quando não há relógio para correr. */
+const parada = t => finalizada(t) ? null : dias(t.data_atualizacao || t.data);
+
 /* ---------- filtros ---------- */
 function filtradas() {
   const b = busca.trim().toLowerCase();
@@ -157,7 +164,8 @@ function filtradas() {
     if (F.status   && t.status   !== F.status)   return false;
     if (F.canal    && t.canal    !== F.canal)    return false;
     if (F.parado) {
-      const d = dias(t.data_atualizacao || t.data);
+      // Caso finalizado não entra em "parado há": ele não parou, ele acabou.
+      const d = parada(t);
       if (d === null || d < +F.parado) return false;
     }
     if (b) {
@@ -230,7 +238,7 @@ function pintaResumo(l) {
 
 /* ---------- kanban ---------- */
 function cardT(t) {
-  const d = dias(t.data_atualizacao || t.data);
+  const d = parada(t);
   const cls = d === null ? '' : d > 45 ? 'r' : d > 20 ? 'a' : 'v';
   const primeiroNome = n => String(n || '').split(' ')[0];
   return `<article class="card-t" data-abrir="${t.id}" style="--c:${fase(t.status).cor}">
@@ -263,19 +271,39 @@ function cardT(t) {
   </article>`;
 }
 
+/* Faixa de total do quadro. Some o que está em tela, já filtrado, e diz sobre
+   quantos casos a soma foi feita — sem isso o gestor não sabe se um total
+   baixo é pouco dinheiro ou valor que ninguém preencheu. */
+function totalQuadro(rotulo, itens, valorDe, um, muitos){
+  const comValor = itens.filter(x=>+valorDe(x)>0);
+  const v = soma(itens, valorDe);
+  return `<div class="total-quadro">
+    <span class="r">${rotulo}</span>
+    <b class="mono">${brl2(v)}</b>
+    <span class="o">${itens.length} ${itens.length===1?um:muitos}
+      · <b>${comValor.length}</b> com valor</span>
+    ${comValor.length?`<span class="fim">ticket médio ${brl(v/comValor.length)}</span>`:''}
+  </div>`;
+}
+
 function telaKanban(l) {
-  $('t-kanban').innerHTML = `<div class="esteira-cols">${FASES.map(f => {
+  $('t-kanban').innerHTML = totalQuadro('Total na esteira', l, t => t.valor, 'tratativa', 'tratativas')
+    + `<div class="esteira-cols">${FASES.map(f => {
     const itens = l.filter(t => t.status === f.id);
     const v = soma(itens, t => t.valor);
+    const comValor = itens.filter(t => +t.valor > 0).length;
     return `<div class="col-k">
       <div class="topo-col">
         <div class="l1"><span class="pt" style="background:${f.cor};color:${f.cor}"></span>
           <b>${esc(f.nome)}</b><span class="qt">${itens.length}</span></div>
-        <div class="vl">${v ? brl(v) : '—'}</div>
+        <div class="vl">${v ? brl2(v) : '—'}</div>
+        <div class="sb">${v ? `${comValor} de ${itens.length} com valor`
+                            : itens.length ? 'nenhuma com valor' : 'vazio'}</div>
       </div>
       <div class="itens">${itens.length
         ? itens.slice(0, 60).map(cardT).join('')
-          + (itens.length > 60 ? `<div class="sem-contato">+ ${itens.length - 60} não mostradas. Use os filtros.</div>` : '')
+          + (itens.length > 60 ? `<div class="sem-contato">+ ${itens.length - 60} não mostradas.
+             O total acima já conta todas.</div>` : '')
         : '<div class="sem-contato">Vazio.</div>'}</div>
     </div>`;
   }).join('')}</div>`;
@@ -291,7 +319,7 @@ function telaLista(l) {
       <th>Data</th><th class="n">Valor</th><th class="n">Parado</th>
     </tr></thead><tbody>
     ${ord.slice(0, 600).map(t => {
-      const d = dias(t.data_atualizacao || t.data);
+      const d = parada(t);
       return `<tr data-abrir="${t.id}">
         <td class="mono">${esc(t.processo)}</td>
         <td>${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
@@ -303,7 +331,9 @@ function telaLista(l) {
         <td>${esc(t.operador || '—')}</td>
         <td class="mono">${dtb(t.data)}</td>
         <td class="n">${t.valor ? brl2(t.valor) : '—'}</td>
-        <td class="n" style="color:${d > 45 ? 'var(--bad)' : d > 20 ? 'var(--warn)' : 'var(--txt-2)'}">${d === null ? '—' : d + 'd'}</td>
+        <td class="n" style="color:${d === null ? 'var(--txt-3)'
+          : d > 45 ? 'var(--bad)' : d > 20 ? 'var(--warn)' : 'var(--txt-2)'}">${
+          d === null ? (finalizada(t) ? 'encerrada' : '—') : d + 'd'}</td>
       </tr>`;
     }).join('')}</tbody></table></div>
     ${ord.length > 600 ? `<div class="resumo-filtro">Mostrando 600 de ${ord.length}. Refine os filtros.</div>` : ''}`;

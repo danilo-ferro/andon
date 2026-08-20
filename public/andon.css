@@ -429,6 +429,21 @@ a{color:inherit}
   color:var(--txt-3);font-size:11.5px;transition:.16s}
 .maisbt:hover{color:var(--txt);border-color:var(--txt-3);background:var(--surf-1)}
 
+/* ============ TOTAL DO QUADRO ============
+   Some o que está em tela, já filtrado. Fica acima das colunas porque é a
+   primeira pergunta de quem aplica um filtro: quanto dá isso tudo. */
+.total-quadro{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding:11px 16px;margin-bottom:13px;border-radius:12px;
+  border:1px solid var(--line);background:linear-gradient(165deg,var(--cx-1),var(--cx-2));
+  box-shadow:var(--elev-1)}
+.total-quadro .r{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--txt-3);font-family:'JetBrains Mono',monospace}
+.total-quadro b.mono{font-size:19px;font-weight:700;letter-spacing:-.04em}
+.total-quadro .o{font-size:11.5px;color:var(--txt-2)}
+.total-quadro .o b{color:var(--txt);font-weight:600}
+.total-quadro .fim{margin-left:auto;font-size:11.5px;color:var(--txt-3)}
+@media (max-width:640px){.total-quadro .fim{margin-left:0}}
+
 /* ============ TABELAS ============ */
 .tb{width:100%;border-collapse:collapse}
 .tb th{text-align:left;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--txt-3);

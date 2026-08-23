@@ -42,11 +42,16 @@ supabase/
   functions/
     carregar/      Edge Function que lê /dados e popula o banco
 
+ferramentas/
+  extrai_base.py   transforma a planilha consolidada nos .psv de /dados
+
 dados/             fonte da verdade dos dados, delimitado por |
-  execucao.psv     946 valores em execução
-  tratativa.psv    1.396 tratativas de acordo
-  faturado.psv     187 acordos faturados
-  advbox.psv       592 lançamentos do ADVBox
+  execucao.psv           946 valores em execução
+  tratativa.psv          1.924 tratativas de acordo
+  acordo_verba.psv       285 linhas de desmembramento (DM, HS, …)
+  acordo_recebimento.psv 315 lançamentos financeiros do ADVBox
+  faturado.psv           187 acordos faturados (base antiga, só insumo)
+  advbox.psv             592 lançamentos do ADVBox (extrato bruto)
 
 docs/
   COMO-FUNCIONA.md
@@ -149,6 +154,36 @@ e-mail errado não adiantaria nada, porque ele voltaria no push seguinte.
 Papel é definido na tela de Equipe, não no login: mudar o papel de alguém não
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
+
+## O dinheiro depois do acordo fechado
+
+Um acordo nunca foi um número só. R$ 5.300 pode ser R$ 3.000 de danos morais do
+cliente e R$ 2.300 de honorário do escritório, pagos em datas diferentes, um já
+em conta e outro em atraso. Até a base consolidada de 2026, o sistema só sabia o
+total — e é do detalhe que saem comissão e previsão de caixa.
+
+Duas tabelas, porque são duas perguntas:
+
+| | responde |
+|---|---|
+| `acordo_verba` | **de que** o acordo é feito — DM, HS, DM+HS, TRABALHISTA, OUTROS |
+| `acordo_recebimento` | **quando** cada pedaço entra, e se já entrou |
+
+`DM+HS` não é uma terceira verba: é o acordo que foi fechado sem separar as duas
+coisas. Ele aparece com esse nome de propósito, porque é exatamente onde a conta
+exata deixa de ser possível.
+
+Os totais não viram coluna — são view (`vw_acordo_financeiro`, `vw_verba_mes`,
+`vw_ranking_operador`). Se a tela somasse por fora, um dia divergiria do painel.
+
+Existe **uma** lista de recebimentos, não duas. O que o ADVBox lançou entra como
+`origem_registro = 'planilha'`; o que o sistema prevê ao fechar um acordo novo
+entra como `'sistema'` e some assim que o lançamento real chega. Duas listas para
+a mesma pergunta seria o caminho mais curto para dois números diferentes na tela.
+
+A diferença entre o valor fechado e o valor discriminado aparece na tela, escrita.
+Escondê-la faria um total menor parecer erro do sistema quando é acordo que ainda
+não foi lançado no ADVBox.
 
 ## Quando a rede falha
 

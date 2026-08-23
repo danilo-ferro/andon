@@ -20,11 +20,15 @@ const RAMOS = ['main', 'master'];
 // so_planilha: a limpeza apaga apenas o que veio de /dados e preserva o que
 // a equipe criou pela tela. Sem isso, o primeiro push depois de a equipe
 // comecar a trabalhar apagaria o trabalho dela.
+// A ordem importa: a tratativa entra primeiro porque verba e recebimento se
+// amarram nela pelo ID_ACORDO. Trocar a ordem deixaria o financeiro orfao.
 const FONTES = [
-  { arquivo: 'execucao.psv',  rpc: 'carrega_execucao',  tabela: 'execucao',          so_planilha: true  },
-  { arquivo: 'tratativa.psv', rpc: 'carrega_tratativa', tabela: 'tratativa',         so_planilha: true  },
-  { arquivo: 'faturado.psv',  rpc: 'carrega_faturado',  tabela: 'acordo_faturado',   so_planilha: true  },
-  { arquivo: 'advbox.psv',    rpc: 'carrega_advbox',    tabela: 'advbox_lancamento', so_planilha: false },
+  { arquivo: 'execucao.psv',            rpc: 'carrega_execucao',     tabela: 'execucao',           so_planilha: true  },
+  { arquivo: 'tratativa.psv',           rpc: 'carrega_tratativa',    tabela: 'tratativa',          so_planilha: true  },
+  { arquivo: 'acordo_verba.psv',        rpc: 'carrega_verba',        tabela: 'acordo_verba',       so_planilha: true  },
+  { arquivo: 'acordo_recebimento.psv',  rpc: 'carrega_recebimento',  tabela: 'acordo_recebimento', so_planilha: true  },
+  { arquivo: 'faturado.psv',            rpc: 'carrega_faturado',     tabela: 'acordo_faturado',    so_planilha: true  },
+  { arquivo: 'advbox.psv',              rpc: 'carrega_advbox',       tabela: 'advbox_lancamento',  so_planilha: false },
 ];
 
 // contato.psv saiu daqui de proposito. Reus, escritorios e contatos passaram

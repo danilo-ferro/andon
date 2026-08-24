@@ -38,7 +38,7 @@ public/            front, sem build — HTML, CSS e JS puros
   andon.js         lê o Supabase por REST; os fatos vêm de views, não daqui
 
 supabase/
-  01-esquema.sql   tabelas, views, funções e RLS — roda do zero
+  01-esquema.sql   espelho do banco: recria tudo do zero, conferido contra produção
   functions/
     carregar/      Edge Function que lê /dados e popula o banco
 
@@ -79,7 +79,9 @@ mesmo digitando errado.
 
 **4. Só desfecho entra no denominador da taxa de sucesso.** Um caso aguardando
 audiência está vivo. Contá-lo como perda derrubaria a taxa por um motivo que
-não tem nada a ver com a qualidade da negociação.
+não tem nada a ver com a qualidade da negociação. Vale igual para as fases de
+formalização: um acordo esperando minuta está indo bem, e contá-lo como
+decidido baixaria a taxa exatamente quando ela deveria subir.
 
 E o relógio só corre para quem ainda pode andar: fase marcada como
 `finalizada` — acordo fechado, recusado, sem retorno, improcedente, e o
@@ -225,6 +227,48 @@ veio com uma data só, e essas linhas entram como "mesmo dia" — somadas, derru
 a média de ~22 para ~4 dias. Isso não é o escritório fechando rápido, é dado que
 faltou. Por isso aparecem a média cheia e a média sem as linhas de data única,
 com a contagem de quantas foram.
+
+A lista **classifica por qualquer coluna**: um clique ordena, outro inverte. A
+ordenação é pelo valor, não pelo que está escrito — senão "R$ 1.000" viria antes
+de "R$ 900", "20 dias" antes de "9 dias", e o status sairia em ordem alfabética
+em vez da ordem do funil.
+
+## Entre acertar o acordo e fechar o acordo
+
+Dizer "sim" não é fechar. Depois do acerto vem a minuta, confeccionada pela
+parte contrária; depois a assinatura do advogado do caso; e só o protocolo
+torna o acordo fechado para o financeiro. São três esperas, cada uma com a bola
+no pé de outra pessoa — e enquanto tudo isso era "em tratativa", ninguém sabia
+com quem o caso estava parado.
+
+| fase | quem está devendo |
+|---|---|
+| Aguardando envio da minuta | a parte contrária, que a confecciona |
+| Aguardando assinatura da minuta | o advogado responsável pelo caso |
+| Aguardando protocolo | a parte contrária, que protocola |
+| Acordo fechado | ninguém — protocolou, virou faturamento |
+
+As três **não contam no denominador** da taxa de conversão e **não são
+finalizadas**. Não são decididas porque o desfecho ainda não aconteceu; e o
+relógio tem que correr nelas justamente porque é ali que o caso fica parado
+esperando ato de terceiro. Ver isso parado é o motivo de o painel existir.
+
+A tela acompanha o status. Enquanto o acordo está sendo formalizado, a etapa de
+**Tratativa** abre os campos de dinheiro — discriminação, forma de pagamento,
+prazo — e, em "Aguardando protocolo", também a data da minuta assinada. Aí o
+acordo passa a aparecer no **Financeiro**, e o acompanhamento é de lá.
+
+**Faturamento** só existe depois de fechado, e nele a previsão de recebimento
+fica trancada até a data do protocolo ser preenchida: é dela que a conta sai.
+
+Os mesmos campos aparecem numa etapa ou na outra, nunca nas duas, e por isso
+usam os mesmos `id` no HTML. Dois campos com o mesmo `id` na página fariam a
+tela ler o valor errado — a exclusividade não é detalhe de estilo, é o que
+mantém a leitura correta.
+
+O Financeiro mede **quanto tempo passa entre a minuta assinada e o protocolo** —
+média, mediana e extremos — e lista o que está esperando, com quantos dias cada
+um espera. É o pedaço do caminho que é do financeiro, e agora ele é visível.
 
 ## Quando a rede falha
 

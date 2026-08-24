@@ -249,6 +249,82 @@ for a in sem_tratativa:
     }
     linhas_trat.append(linha_tratativa(falsa, idac, a))
 
+
+# =====================================================================
+# UM PROCESSO, UMA TRATATIVA
+# =====================================================================
+# A planilha anota cada nova tentativa como uma linha nova: o mesmo processo
+# aparece duas, tres vezes, com "1a TENTATIVA", "2a TENTATIVA" nas observacoes.
+# Isso duplicava o caso na esteira, contava duas tratativas onde houve uma e,
+# quando as duas estavam fechadas, somava o mesmo acordo duas vezes.
+#
+# O historico nao se perde: ele ja mora nas observacoes, e a fusao junta as de
+# todas as linhas em ordem de data. A data da 1a tentativa vira a mais antiga
+# do grupo e a ultima atualizacao a mais recente — que e o que o tempo de
+# encerramento precisa para dizer a verdade.
+#
+# A mesma regra existe no banco (migracao um_processo_uma_tratativa) para o
+# que ja estava carregado. Aqui ela evita que a proxima carga traga de volta.
+IDX = {'id_acordo': 0, 'fase': 1, 'estado': 2, 'advogado': 3, 'processo': 4,
+       'autor': 5, 'reu': 6, 'escritorio': 7, 'canal': 8, 'operador': 9,
+       'data': 10, 'status': 11, 'obs': 12, 'tipo': 13, 'produto': 14,
+       'minuta': 15, 'valor': 16, 'protocolo': 17, 'previsao': 18,
+       'recebido': 19, 'recebimento': 20, 'atualizacao': 21,
+       'forma': 22, 'parcelas': 23, 'principal': 24}
+
+def digitos(p):
+    return re.sub(r'[^0-9]', '', str(p or ''))
+
+def funde(grupo):
+    """Uma linha so, a partir das varias do mesmo processo."""
+    # Manda o lancamento mais atualizado: e ele que diz onde o caso esta hoje.
+    # Uma tratativa fechada em fevereiro que voltou a ser negociada em agosto
+    # nao esta fechada — o registro de agosto e a verdade.
+    def peso(l):
+        return (l[IDX['atualizacao']] or l[IDX['data']] or '',
+                l[IDX['data']] or '',
+                1 if l[IDX['valor']] else 0)
+    fica = max(grupo, key=peso)[:]
+
+    # Onde a vencedora nao tem, a mais recente das outras completa.
+    for campo in ('id_acordo', 'fase', 'estado', 'advogado', 'autor', 'reu',
+                  'escritorio', 'canal', 'operador', 'tipo', 'produto',
+                  'minuta', 'valor', 'protocolo', 'previsao', 'recebimento',
+                  'forma', 'parcelas'):
+        i = IDX[campo]
+        if not fica[i]:
+            for l in sorted(grupo, key=lambda x: x[IDX['data']] or '', reverse=True):
+                if l[i]:
+                    fica[i] = l[i]
+                    break
+
+    datas = [l[IDX['data']] for l in grupo if l[IDX['data']]]
+    fica[IDX['data']] = min(datas) if datas else ''
+    atus = [l[IDX['atualizacao']] or l[IDX['data']] for l in grupo
+            if l[IDX['atualizacao']] or l[IDX['data']]]
+    fica[IDX['atualizacao']] = max(atus) if atus else ''
+
+    # Historico junto, em ordem de data, sem repetir o que ja estava escrito.
+    vistos, obs = set(), []
+    for l in sorted(grupo, key=lambda x: x[IDX['data']] or ''):
+        o = (l[IDX['obs']] or '').strip()
+        if o and o not in vistos:
+            vistos.add(o)
+            obs.append(o)
+    fica[IDX['obs']] = ' / '.join(obs)
+
+    fica[IDX['principal']] = 'true'
+    return fica
+
+grupos = collections.OrderedDict()
+for l in linhas_trat:
+    d = digitos(l[IDX['processo']]) or ('sem-numero-' + str(len(grupos)))
+    grupos.setdefault(d, []).append(l)
+
+antes = len(linhas_trat)
+fundidos = sum(1 for g in grupos.values() if len(g) > 1)
+linhas_trat = [g[0] if len(g) == 1 else funde(g) for g in grupos.values()]
+
 # =====================================================================
 # 2. DESMEMBRAMENTO (verbas)
 # =====================================================================
@@ -303,6 +379,7 @@ print('tratativas da planilha :', len(TRAT))
 print('acordos sem tratativa  :', len(sem_tratativa))
 print('total gravado          :', len(linhas_trat))
 print('linhas com id_acordo   :', sum(1 for l in linhas_trat if l[0]))
+print('processos repetidos    :', fundidos, f'({antes - len(linhas_trat)} linhas fundidas)')
 print('acordos principais     :', sum(1 for l in linhas_trat if l[0] and l[24] == 'true'))
 print('repeticoes de acordo   :', sum(1 for l in linhas_trat if l[0] and l[24] == 'false'))
 print('fechadas que contam    :', sum(1 for l in linhas_trat if l[11] == 'ACORDO FECHADO' and l[24] == 'true'))

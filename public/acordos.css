@@ -155,6 +155,14 @@
 .verbas-tb .rm:hover{color:var(--bad);background:var(--pr-bg)}
 .acoes-verba{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
+/* ---- Trava de processo repetido ----
+   Aparece logo abaixo do campo do processo, enquanto a pessoa digita. */
+.ja-existe{border:1px solid var(--at-bd);background:var(--at-bg);border-radius:10px;
+  padding:11px 13px;margin:-4px 0 12px;display:flex;flex-direction:column;gap:7px}
+.ja-existe .tit{font-size:12px;font-weight:600;color:var(--at-tx)}
+.ja-existe .dado{font-size:11.5px;color:var(--txt-2);line-height:1.6}
+.ja-existe .bt{align-self:flex-start;font-size:11.5px;padding:5px 11px}
+
 /* Acordo que ficou sem discriminação: um clique abre e resolve. */
 .pendente{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;
   padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surf-1);

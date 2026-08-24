@@ -94,9 +94,11 @@ ADVOGADOS = {
     'GLEISY': 'Gleisy Santana', 'DEBORAH': 'Déborah Lisboa',
     'FELIPE': 'Felipe',
 }
+# Sobrenome so entra aqui quando alguem informou. A planilha traz o primeiro
+# nome; completar por conta propria e inventar dado num sistema de registro.
 OPERADORES = {
-    'LIGIA': 'Lígia Moraes', 'NATHALIA': 'Nathalia Gomes',
-    'GABRIELY': 'Gabriely Mota', 'JENIFER': 'Jenifer Nunes',
+    'LIGIA': 'Lígia Cipriano', 'NATHALIA': 'Nathalia Gomes',
+    'GABRIELY': 'Gabriely Mota', 'JENIFER': 'Jenifer Alves',
     'IRIS': 'Iris Pereira', 'FERNANDA': 'Fernanda Simões',
     'EDUARDHA': 'Eduardha Mendez', 'RAFAELA': 'Rafaela Santos',
     'DANILO': 'Danilo Ferro',

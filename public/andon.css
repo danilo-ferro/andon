@@ -268,21 +268,32 @@ a{color:inherit}
 .topo{position:sticky;top:0;z-index:70;
   background:var(--topo-bg);backdrop-filter:blur(20px) saturate(1.4);
   border-bottom:1px solid var(--line)}
-.topo-in{display:flex;align-items:center;gap:20px;padding:11px 20px;max-width:2100px;margin:0 auto}
-.marca{display:flex;align-items:center;gap:11px;flex-shrink:0}
+/* A barra do topo nunca pode empurrar a pagina para fora da janela. Quando
+   entraram as abas Financeiro e Ranking, a linha passou a nao caber em telas
+   de 1366 e sobrava 19px para a direita — a pagina inteira ganhava rolagem
+   horizontal e saia do lugar ao rolar. Envolver e a unica defesa que continua
+   valendo quando alguem acrescentar a proxima aba. */
+.topo-in{display:flex;align-items:center;gap:14px;padding:11px 20px;max-width:2100px;
+  margin:0 auto;flex-wrap:wrap}
+.marca{display:flex;align-items:center;gap:11px;flex-shrink:0;text-decoration:none}
 .marca svg{width:36px;height:36px;border-radius:10px;box-shadow:0 0 0 1px var(--line-2)}
 .marca .n{font-family:'Sora',sans-serif;font-weight:800;font-size:19px;letter-spacing:.02em;line-height:1.05}
 .marca .s{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt-3);margin-top:1px}
-.nav{display:flex;gap:3px;margin-left:10px;align-items:center}
+.nav{display:flex;gap:3px;margin-left:6px;align-items:center;flex-wrap:wrap;
+  min-width:0;flex:0 1 auto}
 .nav button{padding:7px 14px;border-radius:9px;font-weight:500;color:var(--txt-2);
   white-space:nowrap;transition:.16s;font-size:13px}
 .nav button:hover{color:var(--txt);background:var(--surf-1)}
 .nav button.on{color:var(--txt);background:var(--surf-2);box-shadow:var(--elev-1)}
-.topo-dir{margin-left:auto;display:flex;align-items:center;gap:12px}
+.topo-dir{margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+/* A busca cede espaco antes de qualquer outra coisa: e o campo que pode
+   encolher sem perder a funcao. */
 .campo-busca{display:flex;align-items:center;gap:7px;background:var(--surf-1);
-  border:1px solid var(--line);border-radius:10px;padding:0 11px;transition:.16s}
+  border:1px solid var(--line);border-radius:10px;padding:0 11px;transition:.16s;
+  flex:1 1 180px;min-width:120px;max-width:280px}
 .campo-busca:focus-within{border-color:var(--line-2);background:var(--surf-2)}
-.campo-busca input{background:none;border:none;color:var(--txt);padding:8px 0;width:230px;outline:none;font-size:13px}
+.campo-busca input{background:none;border:none;color:var(--txt);padding:8px 0;
+  width:100%;min-width:0;outline:none;font-size:13px}
 .campo-busca input::placeholder{color:var(--txt-3)}
 .campo-busca svg{opacity:.45;flex-shrink:0}
 
@@ -536,10 +547,13 @@ a{color:inherit}
 ::-webkit-scrollbar-thumb{background:var(--barra);border-radius:99px}
 ::-webkit-scrollbar-thumb:hover{background:var(--barra-2)}
 
+/* Espaco curto: o nome de quem esta logado e a primeira coisa dispensavel —
+   o botao Sair ao lado ja diz que ha sessao aberta. */
+@media (max-width:1200px){ #sessao .quem{display:none} }
 @media (max-width:920px){
-  .topo-in{flex-wrap:wrap;gap:10px}
-  .nav{order:3;width:100%;overflow-x:auto;padding-bottom:2px}
-  .campo-busca input{width:130px}
+  .topo-in{gap:10px}
+  .nav{order:3;width:100%;overflow-x:auto;padding-bottom:2px;flex-wrap:nowrap}
+  .campo-busca{flex:1 1 140px}
   .cab h1{font-size:21px}
   .esteira{transform:none}
   .medidor{gap:16px}

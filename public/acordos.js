@@ -87,7 +87,7 @@ let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [];
    quando cada pedaco entra ou entrou (RECEB). Uma lista so de recebimentos,
    com o que veio do ADVBox e o que o sistema previu — duas listas para a
    mesma pergunta seria o caminho curto para dois numeros diferentes. */
-let VERBAS = [], RECEB = [], CFG_VERBA = [], RANKING = [];
+let VERBAS = [], RECEB = [], CFG_VERBA = [], RANKING = [], FERIADOS = [], PARAM = [];
 let aba = 'painel', busca = '';
 const F = { periodo: '', de: '', ate: '', advogado: '', operador: '', produto: '', estado: '',
             tipo: '', fase: '', status: '', canal: '', parado: '' };
@@ -125,7 +125,7 @@ const PRODUTOS = ['Limpa Nome (LN)', 'CCS', 'SCR', 'Bancários / Golpes', 'Estra
 const FECHADO = 'ACORDO FECHADO';
 
 async function carrega() {
-  const [t, p, r, e, c, f, pc, vb, cv, rk] = await Promise.all([
+  const [t, p, r, e, c, f, pc, vb, cv, rk, fer, par] = await Promise.all([
     lerTudo('tratativa'),
     ler('pessoa', 'select=*&order=nome.asc'),
     ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
@@ -137,10 +137,64 @@ async function carrega() {
     lerTudo('acordo_recebimento'),
     lerTudo('acordo_verba'),
     ler('config_verba', 'select=*&order=ordem.asc'),
-    ler('vw_ranking_operador', 'select=*')
+    ler('vw_ranking_operador', 'select=*'),
+    // Feriados e a regra do recesso vêm do banco para que a conta feita aqui na
+    // tela seja a mesma que o banco faz ao salvar. Duas tabelas de feriado
+    // seriam o caminho curto para duas previsões diferentes.
+    ler('feriado', 'select=data,abrangencia,uf'),
+    ler('config_parametro', 'select=chave,valor')
   ]);
   TRAT = t; PESSOAS = p; REUS = r; ESCRS = e; CONTATOS = c; FASES = f;
   RECEB = pc; VERBAS = vb; CFG_VERBA = cv; RANKING = rk;
+  FERIADOS = fer || []; PARAM = par || [];
+}
+
+/* ==================================================================
+   PREVISÃO DE RECEBIMENTO
+
+   A mesma regra do banco (previsao_recebimento), refeita aqui para que a
+   data apareça no instante em que a pessoa preenche o prazo — e não só
+   depois de salvar. Prazo corrido soma dias no calendário; prazo útil
+   anda dia a dia pulando sábado, domingo e feriado. Feriado forense só
+   conta se o escritório ligar `recesso_forense_suspende`.
+
+   Repetir a regra em dois lugares é dívida assumida: era isso ou a
+   operadora digitar o prazo e não ver nada acontecer. O teste compara as
+   duas contas nos casos de borda para que não se separem em silêncio.
+   ================================================================== */
+const paramNum = (chave, padrao) => {
+  const x = PARAM.find(p => p.chave === chave);
+  return x ? (+x.valor || 0) : padrao;
+};
+
+function ehDiaUtil(iso, uf) {
+  const dow = new Date(iso + 'T12:00:00').getDay();
+  if (dow === 0 || dow === 6) return false;
+  const forense = paramNum('recesso_forense_suspende', 0) === 1;
+  return !FERIADOS.some(f => f.data === iso && (
+    f.abrangencia === 'nacional' ||
+    (f.abrangencia === 'estadual' && f.uf === (uf || '')) ||
+    (f.abrangencia === 'forense' && forense)));
+}
+
+function somaDias(iso, n) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return ISO(d);
+}
+
+function calculaPrevisao(protocolo, prazo, tipoPrazo, uf) {
+  const n = +prazo;
+  if (!protocolo || prazo === '' || prazo === null || prazo === undefined
+      || !Number.isFinite(n)) return null;
+  if (!/^ut/i.test(String(tipoPrazo || ''))) return somaDias(protocolo, n);
+  if (n <= 0) return protocolo;
+  let d = protocolo, faltam = n, guarda = 0;
+  while (faltam > 0 && guarda++ < 4000) {
+    d = somaDias(d, 1);
+    if (ehDiaUtil(d, uf)) faltam--;
+  }
+  return d;
 }
 
 const advogados = () => PESSOAS.filter(p => p.ativo && (p.papeis || []).includes('advogado'));
@@ -525,16 +579,30 @@ function telaFinanceiro(l) {
           <td class="n">${brl2(cx.aberto)}</td></tr>
       </table>` : '<div class="sem-contato">Nenhuma verba discriminada no período.</div>'}
       ${(() => {
-        // A diferença entre o fechado e o discriminado tem que aparecer. Se
-        // ficar escondida, um total menor passa por erro do sistema quando na
-        // verdade é acordo que ainda não foi lançado no ADVBox.
-        const semVerba = acordos.filter(t => !vb.some(v => v.tratativa_id === t.id));
-        const falta = fechado - soma(porVerba, x => x.total);
-        if (!semVerba.length && Math.abs(falta) < 1) return '';
+        /* A diferença entre o fechado e o discriminado não pode ficar
+           escondida: um total menor passaria por erro do sistema quando na
+           verdade é acordo que ainda não foi discriminado. E não basta dizer
+           que existe — a lista abre cada um deles, que é o que resolve. */
+        const pendentes = acordos.filter(t => {
+          const v = vb.filter(x => x.tratativa_id === t.id);
+          if (!v.length) return +t.valor > 0;
+          return Math.abs((+t.valor || 0) - soma(v, x => x.valor_total)) >= 0.01;
+        });
+        if (!pendentes.length) return '';
+        const falta = soma(pendentes, t => (+t.valor || 0)
+          - soma(vb.filter(x => x.tratativa_id === t.id), x => x.valor_total));
         return `<div class="nota" style="margin:14px 0 0">
-          <b>${brl2(Math.abs(falta))}</b> ainda sem desmembramento${semVerba.length
-            ? `, em <b>${semVerba.length}</b> acordo${semVerba.length === 1 ? '' : 's'}` : ''}.
-          É acordo fechado que ainda não tem lançamento no ADVBox — não é número faltando aqui.
+          <b>${pendentes.length}</b> acordo${pendentes.length === 1 ? '' : 's'}
+          ${pendentes.length === 1 ? 'está' : 'estão'} sem discriminação fechada —
+          <b>${brl2(Math.abs(falta))}</b> de diferença. São de antes de a discriminação
+          virar obrigatória. Clique para abrir e separar as verbas:
+          <div style="margin-top:9px;display:flex;flex-direction:column;gap:5px">
+            ${pendentes.sort((a, b) => (+b.valor || 0) - (+a.valor || 0)).slice(0, 30)
+              .map(t => `<button type="button" class="pendente" data-abrir="${t.id}">
+                <span class="mono">${esc(t.processo)}</span>
+                <span class="nm">${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</span>
+                <b class="mono">${brl2(t.valor)}</b></button>`).join('')}
+          </div>
         </div>`;
       })()}
     </div>
@@ -599,6 +667,37 @@ function telaFinanceiro(l) {
    calculasse por fora, um dia divergiria do painel.
    ================================================================== */
 let ordemRanking = 'valor_fechado';
+/* O ranking tem periodo proprio: os filtros do topo recortam tratativas, e o
+   ranking recorta pessoas. Misturar os dois faria "operador" filtrar o proprio
+   ranking, que nao faz sentido. */
+let periodoRank = { modo: '', de: '', ate: '' };
+
+function intervaloRank() {
+  const m = periodoRank.modo;
+  if (m === 'custom') return [periodoRank.de, periodoRank.ate];
+  if (/^\d{4}-\d{2}$/.test(m)) {
+    const [a, mes] = m.split('-').map(Number);
+    return [`${m}-01`, ISO(new Date(a, mes, 0))];
+  }
+  if (/^\d{4}$/.test(m)) return [`${m}-01-01`, `${m}-12-31`];
+  return ['', ''];
+}
+
+const anosDisponiveis = () => {
+  const s = new Set();
+  TRAT.forEach(t => [t.data, t.data_atualizacao, t.data_protocolo]
+    .forEach(d => { if (d) s.add(d.slice(0, 4)); }));
+  return [...s].sort().reverse();
+};
+
+/* Uma definicao so: a mesma funcao do banco que a view usa sem periodo. */
+async function carregaRanking() {
+  const [de, ate] = intervaloRank();
+  RANKING = await api('rpc/ranking_operador', {
+    method: 'POST',
+    body: JSON.stringify({ p_de: de || null, p_ate: ate || null })
+  }) || [];
+}
 const COLUNAS_RANK = [
   { id: 'valor_fechado',   rotulo: 'Valor fechado',   fmt: v => brl2(v) },
   { id: 'valor_recebido',  rotulo: 'Recebido',        fmt: v => brl2(v) },
@@ -623,10 +722,27 @@ function telaRanking() {
          e sem ele o histórico de 2026 não fecha.</p>
     </div>
 
-    <div class="filtros">
-      <span style="font-size:11px;color:var(--txt-3);margin-right:4px">ordenar por</span>
-      ${COLUNAS_RANK.map(c => `<button class="chip ${c.id === ordemRanking ? 'on' : ''}"
-        data-rank="${c.id}">${c.rotulo}</button>`).join('')}
+    <div class="filtros-linha" style="margin-bottom:14px">
+      <label class="filtro periodo"><span>período</span>
+        <select data-rp="modo">
+          <option value="" ${!periodoRank.modo ? 'selected' : ''}>todo o período</option>
+          <option value="custom" ${periodoRank.modo === 'custom' ? 'selected' : ''}>intervalo personalizado…</option>
+          <optgroup label="por ano">${anosDisponiveis().map(a =>
+            `<option value="${a}" ${periodoRank.modo === a ? 'selected' : ''}>${a}</option>`).join('')}</optgroup>
+          <optgroup label="por mês">${mesesDisponiveis().map(m =>
+            `<option value="${m}" ${periodoRank.modo === m ? 'selected' : ''}>${
+              NOME_MES[+m.slice(5, 7) - 1]} de ${m.slice(0, 4)}</option>`).join('')}</optgroup>
+        </select></label>
+      <label class="filtro ${periodoRank.modo === 'custom' ? '' : 'oculto'}"><span>de</span>
+        <input type="date" data-rp="de" value="${periodoRank.de}"></label>
+      <label class="filtro ${periodoRank.modo === 'custom' ? '' : 'oculto'}"><span>até</span>
+        <input type="date" data-rp="ate" value="${periodoRank.ate}"></label>
+      <div class="filtro" style="min-width:auto;flex:1"></div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;color:var(--txt-3)">ordenar por</span>
+        ${COLUNAS_RANK.map(c => `<button class="chip ${c.id === ordemRanking ? 'on' : ''}"
+          data-rank="${c.id}">${c.rotulo}</button>`).join('')}
+      </div>
     </div>
 
     <div class="tb-rolagem"><table class="tb-lista">
@@ -651,12 +767,31 @@ function telaRanking() {
         <td class="n">${brl2(x.ticket_medio)}</td>
         <td class="n">${x.dias_ate_protocolo == null ? '—' : (+x.dias_ate_protocolo).toFixed(1)}</td>
       </tr>`).join('')}</tbody></table></div>
-    <div class="resumo-filtro">Ordenado por <b>${col.rotulo}</b>. O ranking lê o histórico
-      inteiro — os filtros do topo não se aplicam a ele.</div>`;
+    <div class="resumo-filtro">Ordenado por <b>${col.rotulo}</b> · ${rotuloPeriodoRank()}.
+      Uma tratativa entra no período quando qualquer marco dela caiu ali — abertura,
+      atualização ou protocolo. O dinheiro entra pela data em que entrou.
+      Os filtros do topo não se aplicam ao ranking.</div>`;
 
   document.querySelectorAll('[data-rank]').forEach(b => b.onclick = () => {
     ordemRanking = b.dataset.rank; desenha();
   });
+  document.querySelectorAll('[data-rp]').forEach(el => el.onchange = () => protege(async () => {
+    periodoRank[el.dataset.rp] = el.value;
+    if (el.dataset.rp === 'modo' && el.value !== 'custom') { periodoRank.de = ''; periodoRank.ate = ''; }
+    await carregaRanking();
+    desenha();
+  }));
+}
+
+function rotuloPeriodoRank() {
+  const m = periodoRank.modo;
+  if (!m) return 'histórico inteiro';
+  if (m === 'custom') {
+    if (!periodoRank.de && !periodoRank.ate) return 'intervalo ainda sem datas';
+    return `de ${dtb(periodoRank.de) } até ${dtb(periodoRank.ate)}`;
+  }
+  if (/^\d{4}$/.test(m)) return 'ano de ' + m;
+  return NOME_MES[+m.slice(5, 7) - 1] + ' de ' + m.slice(0, 4);
 }
 
 function telaPainel(l) {
@@ -851,7 +986,16 @@ function abreForm(t) {
   // Tratativa nova ganha a chave aqui, antes de qualquer digitação: assim ela
   // acompanha o rascunho guardado e repetir o salvamento nunca duplica.
   if (!rascunho.id && !rascunho.chave_cliente) rascunho.chave_cliente = ANDON_REDE.chaveNova();
-  etapa = 1;
+  // A discriminação do acordo é editada aqui dentro, então vem junto.
+  rascunho.verbas = t && t.id
+    ? verbasDe(t.id).map(v => ({ id: v.id, verba: v.verba, detalhe: v.detalhe || '',
+                                 valor_total: +v.valor_total || 0 }))
+    : [];
+  /* A tela abre onde o trabalho está. Tratativa nova começa na identificação;
+     tratativa em andamento abre direto na etapa 2, que é onde a operadora mexe;
+     acordo já fechado abre no faturamento, que é o que falta preencher.
+     Abrir sempre na etapa 1 custava dois cliques a cada atualização. */
+  etapa = !rascunho.id ? 1 : (rascunho.status === FECHADO ? 3 : 2);
   pintaForm();
   $('gav').classList.add('on'); $('veu').classList.add('on');
 }
@@ -958,7 +1102,6 @@ function etapaFaturamento() {
   const r = rascunho;
   const parcelado = r.forma_pagamento === 'parcelado';
   const p = r.id ? recebimentosDe(r.id) : [];
-  const v = r.id ? verbasDe(r.id) : [];
   return `<div class="etapa ${etapa === 3 ? 'on' : ''}" id="e3">
     <div class="dupla">
       ${campo('Status', `<input class="inp" value="${esc(fase(r.status).nome)}" disabled>`)}
@@ -979,41 +1122,74 @@ function etapaFaturamento() {
       ${campo('Tipo de prazo', escolha('f3-tipoprazo', [{ v: 'uteis', l: 'úteis' }, { v: 'corridos', l: 'corridos' }], r.tipo_prazo))}
     </div>
     <div class="dupla">
-      ${campo('Previsão / próx. recebimento <span style="text-transform:none;letter-spacing:0;color:var(--txt-3)">(editável)</span>',
+      ${campo(`Previsão de recebimento ${r.previsao_manual
+          ? '<span style="text-transform:none;letter-spacing:0;color:var(--warn)">(digitada por você)</span>'
+          : '<span style="text-transform:none;letter-spacing:0;color:var(--txt-3)">(calculada)</span>'}`,
         entrada('f3-previsao', 'date', r.previsao),
-        'Calculada a partir do protocolo, pulando fins de semana e feriados. Se você digitar, o sistema respeita e para de recalcular.')}
+        r.previsao_manual
+          ? 'O sistema parou de recalcular porque você digitou uma data. <button type="button" class="bt-mini" id="f3-recalcular">voltar a calcular</button>'
+          : 'Sai sozinha do protocolo + prazo, pulando fim de semana e feriado. Digite por cima quando o combinado for outro.')}
       ${campo('Recebido?', escolha('f3-recebido', [{ v: 'false', l: 'Não' }, { v: 'true', l: 'Sim' }], String(!!r.recebido)))}
     </div>
     ${campo('Data do recebimento', entrada('f3-datarec', 'date', r.data_recebimento))}
-    ${blocoVerbas(v, +r.valor || 0)}
+    ${blocoVerbas(r.verbas || [], +r.valor || 0)}
     ${blocoRecebimentos(p)}
     ${campo('Observações', `<textarea class="inp" id="f3-obs" rows="3">${esc(r.observacoes || '')}</textarea>`)}
   </div>`;
 }
 
-/* De que é feito este acordo. É a informação que separa o que vai para o
-   cliente do que fica no escritório — e sem ela não existe regra de comissão. */
+/* ==================================================================
+   DISCRIMINAÇÃO DOS VALORES
+
+   De que é feito este acordo: quanto é danos morais do cliente, quanto é
+   honorário do escritório. É preenchida aqui, no ato do fechamento — não
+   vem mais de fora. Sem ela não existe regra de comissão, e por isso o
+   sistema não deixa fechar um acordo sem que alguém tenha decidido: ou
+   discrimina, ou marca explicitamente como não discriminado.
+   ================================================================== */
 function blocoVerbas(v, valorAcordo) {
   const total = soma(v, x => x.valor_total);
   const falta = Math.round((valorAcordo - total) * 100) / 100;
-  return `<div class="bloco"><h4>Desmembramento do valor${v.length ? ` — ${v.length}` : ''}</h4>
-    ${v.length ? `<table class="parcelas-tb">
-      ${v.map(x => `<tr>
-        <td><span class="marcador"><i style="background:${verba(x.verba).cor}"></i>${esc(verba(x.verba).nome)}</span>
-          ${x.detalhe ? `<div class="dica" style="margin:2px 0 0">${esc(x.detalhe)}</div>` : ''}</td>
-        <td class="n">${brl2(x.valor_total)}</td>
-        <td class="n" style="color:var(--s5)">${+x.valor_pago ? brl2(x.valor_pago) : '—'}</td>
-        <td class="n" style="color:${+x.valor_em_aberto ? 'var(--warn)' : 'var(--txt-3)'}">${+x.valor_em_aberto ? brl2(x.valor_em_aberto) : '—'}</td>
+  const fechado = rascunho.status === FECHADO;
+  const ops = CFG_VERBA.length ? CFG_VERBA
+    : [{ id: 'DM', nome: 'Danos morais' }, { id: 'HS', nome: 'Honorários' },
+       { id: 'DM+HS', nome: 'DM + HS (não discriminado)' },
+       { id: 'TRABALHISTA', nome: 'Trabalhista' }, { id: 'OUTROS', nome: 'Outros' }];
+
+  return `<div class="bloco" id="bloco-verbas">
+    <h4>Discriminação dos valores${v.length ? ` — ${v.length}` : ''}
+      ${fechado ? '<span style="color:var(--warn);letter-spacing:0;text-transform:none"> · obrigatória</span>' : ''}</h4>
+
+    ${v.length ? `<table class="verbas-tb">
+      <tr><th>Verba</th><th class="n">Valor</th><th>Detalhe</th><th></th></tr>
+      ${v.map((x, i) => `<tr>
+        <td><select class="inp" data-vb="verba" data-i="${i}">
+          ${ops.map(o => opt(o.id, x.verba, o.nome)).join('')}</select></td>
+        <td class="n"><input class="inp n" type="number" step="0.01" min="0"
+          data-vb="valor_total" data-i="${i}" value="${x.valor_total || ''}"></td>
+        <td><input class="inp" data-vb="detalhe" data-i="${i}"
+          value="${esc(x.detalhe || '')}" placeholder="opcional"></td>
+        <td><button type="button" class="rm" data-vb-remove="${i}" title="Remover">&times;</button></td>
       </tr>`).join('')}
-      <tr><td><b>Total</b></td><td class="n"><b>${brl2(total)}</b></td>
-        <td class="n"></td><td class="n"></td></tr>
-    </table>
-    ${falta ? `<div class="dica" style="color:var(--warn)">
-      ${falta > 0 ? `Faltam ${brl2(falta)} para fechar com o valor do acordo.`
-                  : `O desmembramento passa ${brl2(-falta)} do valor do acordo.`}
-      Confira com o financeiro.</div>` : ''}`
-    : `<div class="dica">Ainda sem desmembramento. Ele chega junto com o lançamento
-       do ADVBox — é lá que se separa o que é do cliente e o que é do escritório.</div>`}
+      <tr class="tot"><td><b>Total discriminado</b></td>
+        <td class="n"><b>${brl2(total)}</b></td><td colspan="2"></td></tr>
+    </table>` : ''}
+
+    <div class="acoes-verba">
+      <button type="button" class="bt" id="vb-add">+ Adicionar verba</button>
+      ${!v.length && valorAcordo ? `<button type="button" class="bt" id="vb-tudo">
+        Tudo em uma verba (${brl2(valorAcordo)})</button>` : ''}
+    </div>
+
+    ${v.length && falta ? `<div class="nota" style="margin:12px 0 0">
+      ${falta > 0 ? `Faltam <b>${brl2(falta)}</b> para fechar com o valor do acordo.`
+                  : `A discriminação passa <b>${brl2(-falta)}</b> do valor do acordo.`}
+      A soma das verbas tem que dar exatamente o valor do acordo.</div>` : ''}
+    ${!v.length ? `<div class="dica">${fechado
+      ? 'Acordo fechado precisa da discriminação. Se o acordo foi fechado sem separar '
+        + 'as verbas, escolha <b>DM + HS (não discriminado)</b> — é uma decisão registrada, '
+        + 'não um campo em branco.'
+      : 'Preencha quando o acordo fechar.'}</div>` : ''}
   </div>`;
 }
 
@@ -1189,9 +1365,12 @@ function coleta() {
       data_recebimento: v('f3-datarec') || null,
       observacoes: v('f3-obs') || null
     });
-    // Só marca como manual se a data digitada difere da que o banco calculou.
-    r.previsao_manual = !!(previsaoDigitada && previsaoDigitada !== r.previsao);
+    /* Manual e uma decisao de quem digitou, marcada no proprio campo (ver
+       ligaForm). Deduzir por comparacao dava falso positivo: bastava o banco
+       recalcular diferente para o sistema achar que alguem tinha digitado. */
     r.previsao = previsaoDigitada;
+    if (!r.previsao_manual) r.previsao = previsaoDoPrazo() || previsaoDigitada;
+    r.verbas = leVerbasDaTela();
   }
   talvezGuardeRascunho();
 }
@@ -1228,7 +1407,95 @@ function ligaForm() {
   if (st2) st2.onchange = () => { coleta(); pintaForm(); };
   const fp = $('f3-forma');
   if (fp) fp.onchange = () => { coleta(); pintaForm(); };
+
+  ligaPrevisao();
+  ligaVerbas();
   pintaContatos();
+}
+
+/* A previsão sai dos três campos que a definem: protocolo, prazo e tipo de
+   prazo. Mexeu em qualquer um, ela se refaz na hora — sem salvar, sem esperar
+   o banco. Quem digitar uma data por cima manda: o sistema para de recalcular
+   e diz isso na tela, com um botão para voltar atrás. */
+function previsaoDoPrazo() {
+  const v = id => { const el = $(id); return el ? el.value : ''; };
+  return calculaPrevisao(v('f3-protocolo'), v('f3-prazo'), v('f3-tipoprazo'),
+                         rascunho.estado);
+}
+
+function ligaPrevisao() {
+  const campoPrev = $('f3-previsao');
+  if (!campoPrev) return;
+
+  const recalcula = () => {
+    if (rascunho.previsao_manual) return;
+    const d = previsaoDoPrazo();
+    campoPrev.value = d || '';
+    rascunho.previsao = d || null;
+  };
+  ['f3-protocolo', 'f3-prazo', 'f3-tipoprazo'].forEach(id => {
+    const el = $(id);
+    if (el) { el.oninput = recalcula; el.onchange = recalcula; }
+  });
+
+  // Digitou por cima: a partir daqui a data é dela.
+  campoPrev.onchange = () => {
+    const calculada = previsaoDoPrazo();
+    const digitada = campoPrev.value || null;
+    rascunho.previsao = digitada;
+    rascunho.previsao_manual = !!(digitada && digitada !== calculada);
+    coleta(); pintaForm();
+  };
+
+  const voltar = $('f3-recalcular');
+  if (voltar) voltar.onclick = () => {
+    rascunho.previsao_manual = false;
+    coleta(); pintaForm();
+  };
+
+  // Abriu sem previsão mas com os dados para calculá-la: calcula.
+  if (!rascunho.previsao_manual && !campoPrev.value) recalcula();
+}
+
+/* ---------- discriminação dos valores ---------- */
+function leVerbasDaTela() {
+  const linhas = rascunho.verbas ? rascunho.verbas.map(x => ({ ...x })) : [];
+  document.querySelectorAll('[data-vb]').forEach(el => {
+    const i = +el.dataset.i;
+    if (!linhas[i]) return;
+    linhas[i][el.dataset.vb] = el.dataset.vb === 'valor_total'
+      ? (numero(el.value) || 0) : el.value;
+  });
+  return linhas;
+}
+
+function ligaVerbas() {
+  if (!$('bloco-verbas')) return;
+  const refaz = () => { rascunho.verbas = leVerbasDaTela(); coleta(); pintaForm(); };
+
+  document.querySelectorAll('[data-vb]').forEach(el => {
+    el.onchange = refaz;
+  });
+  document.querySelectorAll('[data-vb-remove]').forEach(b => b.onclick = () => {
+    const l = leVerbasDaTela();
+    l.splice(+b.dataset.vbRemove, 1);
+    rascunho.verbas = l; coleta(); pintaForm();
+  });
+  const add = $('vb-add');
+  if (add) add.onclick = () => {
+    const l = leVerbasDaTela();
+    // O que sobra do valor do acordo já entra sugerido: é quase sempre o certo.
+    const falta = Math.round(((+rascunho.valor || 0) - soma(l, x => x.valor_total)) * 100) / 100;
+    l.push({ verba: (CFG_VERBA[0] || {}).id || 'DM', detalhe: '',
+             valor_total: falta > 0 ? falta : 0 });
+    rascunho.verbas = l; coleta(); pintaForm();
+  };
+  const tudo = $('vb-tudo');
+  if (tudo) tudo.onclick = () => {
+    rascunho.verbas = [{ verba: 'DM+HS', detalhe: '(NÃO DISCRIMINADO)',
+                         valor_total: +rascunho.valor || 0 }];
+    coleta(); pintaForm();
+  };
 }
 
 function validaIdentificacao() {
@@ -1243,9 +1510,45 @@ function validaIdentificacao() {
   return true;
 }
 
+/* Acordo fechado sem discriminação não entra. Não é rigor por rigor: é dela
+   que sai a comissão, e um campo em branco hoje vira uma conta impossível
+   depois. Quem fechou sem separar as verbas tem a opção de dizer isso — o que
+   o sistema não aceita é ninguém ter decidido. */
+function validaDiscriminacao() {
+  const r = rascunho;
+  if (r.status !== FECHADO) return true;
+  const v = r.verbas || [];
+  const valor = +r.valor || 0;
+  if (!valor) return true;
+  if (!v.length) {
+    etapa = 3;
+    alerta('Acordo fechado precisa da discriminação dos valores. Abra o Faturamento '
+         + 'e separe as verbas — ou marque tudo como "DM + HS (não discriminado)".', 'erro');
+    pintaForm();
+    return false;
+  }
+  const semValor = v.filter(x => !(+x.valor_total));
+  if (semValor.length) {
+    etapa = 3;
+    alerta('Há verba sem valor na discriminação. Preencha ou remova a linha.', 'erro');
+    pintaForm();
+    return false;
+  }
+  const dif = Math.round((valor - soma(v, x => x.valor_total)) * 100) / 100;
+  if (Math.abs(dif) >= 0.01) {
+    etapa = 3;
+    alerta(`A discriminação soma ${brl2(soma(v, x => x.valor_total))} e o acordo é de `
+         + `${brl2(valor)}. ${dif > 0 ? 'Faltam ' + brl2(dif) : 'Sobram ' + brl2(-dif)}.`, 'erro');
+    pintaForm();
+    return false;
+  }
+  return true;
+}
+
 async function salvar() {
   coleta();
   if (!validaIdentificacao()) return;
+  if (!validaDiscriminacao()) return;
   const r = rascunho;
   const dados = {
     tipo: semVazio(r.tipo), fase: semVazio(r.fase), estado: semVazio(r.estado),
@@ -1311,9 +1614,41 @@ async function salvar() {
     desenha();
   }
   alerta('Tratativa salva.', 'ok');
-  // As parcelas são geradas pelo banco a partir do que acabou de ser salvo.
-  // Duas chamadas pequenas no lugar da releitura inteira.
-  if (id) releParcelas(id).catch(() => { });
+  if (id) {
+    // A discriminação vai depois da tratativa porque precisa do id dela.
+    // Falhar aqui não desfaz o salvamento — mas precisa ser dito.
+    try { await gravaVerbas(id, r.verbas || []); }
+    catch (e) { alerta('Tratativa salva, mas a discriminação não subiu: '
+                     + (e.message || e) + ' Clique em Salvar de novo.', 'erro'); }
+    releParcelas(id).catch(() => { });
+  }
+}
+
+/* A tela é a dona da discriminação: o que está aqui substitui o que havia.
+   Meio-termo (mesclar linha a linha) deixaria sobra invisível de importação
+   antiga, e a conta da comissão sairia errada sem ninguém ver. */
+async function gravaVerbas(id, linhas) {
+  const antes = verbasDe(id);
+  const iguais = antes.length === linhas.length && antes.every((a, i) =>
+    a.verba === linhas[i].verba &&
+    (a.detalhe || '') === (linhas[i].detalhe || '') &&
+    Math.abs((+a.valor_total || 0) - (+linhas[i].valor_total || 0)) < 0.005);
+  if (iguais) return;
+
+  if (antes.length) await api(`acordo_verba?tratativa_id=eq.${id}`, { method: 'DELETE' });
+  let novas = [];
+  if (linhas.length) {
+    novas = await criar('acordo_verba', linhas.map(x => ({
+      tratativa_id: id, id_acordo: rascunho.id_acordo || null,
+      processo: rascunho.processo || null,
+      verba: x.verba, detalhe: semVazio(x.detalhe),
+      valor_total: +x.valor_total || 0,
+      valor_pago: 0, valor_em_aberto: 0, qtd_lancamentos: 0,
+      origem_registro: 'sistema'
+    }))) || [];
+  }
+  VERBAS = VERBAS.filter(v => v.tratativa_id !== +id).concat(novas);
+  desenha();
 }
 
 /* Relê só o que o banco pode ter mudado sozinho por causa deste salvamento:

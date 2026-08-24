@@ -48,7 +48,7 @@ ferramentas/
 dados/             fonte da verdade dos dados, delimitado por |
   execucao.psv           946 valores em execução
   tratativa.psv          1.924 tratativas de acordo
-  acordo_verba.psv       285 linhas de desmembramento (DM, HS, …)
+  acordo_verba.psv       285 linhas de discriminação (DM, HS, …)
   acordo_recebimento.psv 315 lançamentos financeiros do ADVBox
   faturado.psv           187 acordos faturados (base antiga, só insumo)
   advbox.psv             592 lançamentos do ADVBox (extrato bruto)
@@ -181,9 +181,15 @@ Existe **uma** lista de recebimentos, não duas. O que o ADVBox lançou entra co
 entra como `'sistema'` e some assim que o lançamento real chega. Duas listas para
 a mesma pergunta seria o caminho mais curto para dois números diferentes na tela.
 
+A discriminação é **obrigatória ao fechar um acordo** e se preenche na própria
+tratativa, na etapa de Faturamento. Não vem mais de fora: o ADVBox está sendo
+substituído por este sistema. Quem fechou sem separar as verbas tem a opção de
+dizer isso — `DM + HS (não discriminado)` é uma decisão registrada. O que o
+sistema não aceita é ninguém ter decidido.
+
 A diferença entre o valor fechado e o valor discriminado aparece na tela, escrita.
-Escondê-la faria um total menor parecer erro do sistema quando é acordo que ainda
-não foi lançado no ADVBox.
+Escondê-la faria um total menor parecer erro do sistema quando são acordos
+antigos, importados antes de a discriminação virar obrigatória.
 
 ## Quando a rede falha
 

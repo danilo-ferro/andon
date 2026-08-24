@@ -82,7 +82,12 @@ const criar = (t, o)    => api(t, { method: 'POST', body: JSON.stringify(o), hea
 const mudar = (t, id, o) => api(`${t}?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
 
 /* ---------- estado ---------- */
-let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [], PARCELAS = [];
+let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [];
+/* O dinheiro depois do acordo fechado: de que verba ele e feito (VERBAS) e
+   quando cada pedaco entra ou entrou (RECEB). Uma lista so de recebimentos,
+   com o que veio do ADVBox e o que o sistema previu — duas listas para a
+   mesma pergunta seria o caminho curto para dois numeros diferentes. */
+let VERBAS = [], RECEB = [], CFG_VERBA = [], RANKING = [];
 let aba = 'painel', busca = '';
 const F = { periodo: '', de: '', ate: '', advogado: '', operador: '', produto: '', estado: '',
             tipo: '', fase: '', status: '', canal: '', parado: '' };
@@ -112,14 +117,15 @@ function mesesDisponiveis() {
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR',
              'PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
-const TIPOS   = ['ATIVO', 'PASSIVO'];
+const TIPOS   = ['ATIVO', 'PASSIVO', 'TRABALHISTA'];
+const SITUACOES = ['PAGO', 'EM ATRASO', 'A VENCER'];
 const FASES_P = ['Pré-sentença', 'Pós-sentença', 'Pós-acórdão'];
 const CANAIS  = ['WHATSAPP', 'E-MAIL', 'TELEFONE', 'AUDIÊNCIA', 'AUTOS', 'NÃO APTO'];
 const PRODUTOS = ['Limpa Nome (LN)', 'CCS', 'SCR', 'Bancários / Golpes', 'Estratégico', 'Trabalhista'];
 const FECHADO = 'ACORDO FECHADO';
 
 async function carrega() {
-  const [t, p, r, e, c, f, pc] = await Promise.all([
+  const [t, p, r, e, c, f, pc, vb, cv, rk] = await Promise.all([
     lerTudo('tratativa'),
     ler('pessoa', 'select=*&order=nome.asc'),
     ler('parte_adversa', 'select=id,nome,chave&order=nome.asc'),
@@ -128,15 +134,25 @@ async function carrega() {
     // longas, e trazer o que não se usa é peso de rede em cada carregamento.
     lerTudo('contato', 'id,dono_tipo,dono_id,canal,valor,rotulo'),
     ler('config_fase', 'select=*&esteira=eq.acordo&order=ordem.asc'),
-    lerTudo('acordo_parcela', 'id,tratativa_id,numero,previsao,valor,recebido')
+    lerTudo('acordo_recebimento'),
+    lerTudo('acordo_verba'),
+    ler('config_verba', 'select=*&order=ordem.asc'),
+    ler('vw_ranking_operador', 'select=*')
   ]);
-  TRAT = t; PESSOAS = p; REUS = r; ESCRS = e; CONTATOS = c; FASES = f; PARCELAS = pc;
+  TRAT = t; PESSOAS = p; REUS = r; ESCRS = e; CONTATOS = c; FASES = f;
+  RECEB = pc; VERBAS = vb; CFG_VERBA = cv; RANKING = rk;
 }
 
 const advogados = () => PESSOAS.filter(p => p.ativo && (p.papeis || []).includes('advogado'));
 const operadores = () => PESSOAS.filter(p => p.ativo && (p.papeis || []).includes('operador'));
 const fase = id => FASES.find(x => x.id === id) || { nome: id || '—', cor: '#5B6878' };
-const parcelasDe = id => PARCELAS.filter(p => p.tratativa_id === id);
+const recebimentosDe = id => RECEB.filter(p => p.tratativa_id === id)
+  .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''));
+const verbasDe = id => VERBAS.filter(v => v.tratativa_id === id);
+const verba = id => CFG_VERBA.find(v => v.id === id) || { id, nome: id || '—', cor: '#5B6878' };
+/* Um acordo por linha: as repeticoes do mesmo acordo ficam no historico mas
+   nao contam de novo, senao 238 acordos virariam 241 no painel. */
+const ehAcordo = t => t.status === FECHADO && t.acordo_principal !== false;
 
 /* Acordo fechado, recusado, sem retorno, improcedente: o caso acabou.
    "Parado há 300 dias" aí não é atraso — é um caso que não tem mais para onde
@@ -225,7 +241,7 @@ function pintaFiltros() {
 }
 
 function pintaResumo(l) {
-  const fechados = l.filter(t => t.status === FECHADO);
+  const fechados = l.filter(ehAcordo);
   const decididos = l.filter(t => (fase(t.status).conta_no_denominador));
   const taxa = decididos.length ? (fechados.length / decididos.length * 100) : 0;
   const valor = soma(fechados, t => t.valor);
@@ -401,19 +417,262 @@ function resultadosDaBusca(l) {
   </div>`;
 }
 
+/* ==================================================================
+   O DINHEIRO DEPOIS DO ACORDO FECHADO
+
+   Um acordo nunca foi um numero so. R$ 5.300 pode ser R$ 3.000 de danos
+   morais do cliente e R$ 2.300 de honorario do escritorio, pagos em datas
+   diferentes, um ja em conta e outro em atraso. Ate aqui o sistema so
+   sabia o total — e e do detalhe que saem comissao e previsao de caixa.
+
+   Duas leituras, que respondem a perguntas diferentes:
+     verba        de que o acordo e feito
+     recebimento  quando cada pedaco entra, e se ja entrou
+   ================================================================== */
+
+/* A situacao vem da base congelada no dia da consolidacao. "A vencer" de
+   ontem e "em atraso" hoje: quem decide isso e o calendario, nao o arquivo. */
+function situacaoDe(r) {
+  if (r.situacao === 'PAGO') return 'PAGO';
+  if (r.vencimento && r.vencimento < ISO(HOJE)) return 'EM ATRASO';
+  return 'A VENCER';
+}
+const CORSIT = { 'PAGO': 'var(--s5)', 'EM ATRASO': 'var(--bad)', 'A VENCER': 'var(--warn)' };
+
+function caixaDe(l) {
+  const ids = new Set(l.map(t => t.id));
+  const todos = RECEB.filter(x => ids.has(x.tratativa_id));
+  const pagos = todos.filter(x => situacaoDe(x) === 'PAGO');
+  const abertos = todos.filter(x => situacaoDe(x) !== 'PAGO');
+  const atrasados = todos.filter(x => situacaoDe(x) === 'EM ATRASO');
+  return { todos, pagos, abertos, atrasados,
+           recebido: soma(pagos, x => x.valor),
+           aberto: soma(abertos, x => x.valor),
+           atrasado: soma(atrasados, x => x.valor) };
+}
+
+let fSituacao = '';   // filtro proprio da tela financeira
+
+function telaFinanceiro(l) {
+  const acordos = l.filter(ehAcordo);
+  const ids = new Set(acordos.map(t => t.id));
+  const cx = caixaDe(acordos);
+  const fechado = soma(acordos, t => t.valor);
+  const vb = VERBAS.filter(v => ids.has(v.tratativa_id));
+
+  /* ---- por verba ---- */
+  const porVerba = CFG_VERBA.map(c => {
+    const linhas = vb.filter(v => v.verba === c.id);
+    const rec = cx.todos.filter(r => r.verba === c.id);
+    return { ...c, acordos: new Set(linhas.map(x => x.tratativa_id)).size,
+             total: soma(linhas, x => x.valor_total),
+             pago: soma(rec.filter(r => situacaoDe(r) === 'PAGO'), x => x.valor),
+             aberto: soma(rec.filter(r => situacaoDe(r) !== 'PAGO'), x => x.valor) };
+  }).filter(x => x.total || x.pago || x.aberto);
+  const totalVerbas = soma(porVerba, x => x.total) || 1;
+
+  /* ---- por competencia ---- */
+  const comp = {};
+  cx.todos.forEach(r => {
+    const m = (r.data_pagamento || r.vencimento || '').slice(0, 7);
+    if (!m) return;
+    comp[m] = comp[m] || { m, pago: 0, aberto: 0, n: 0 };
+    comp[m].n++;
+    if (situacaoDe(r) === 'PAGO') comp[m].pago += +r.valor || 0;
+    else comp[m].aberto += +r.valor || 0;
+  });
+  const meses = Object.values(comp).sort((a, b) => a.m.localeCompare(b.m)).slice(-14);
+  const teto = Math.max(...meses.map(x => x.pago + x.aberto), 1);
+
+  /* ---- lancamentos ---- */
+  const lanc = cx.todos
+    .filter(r => !fSituacao || situacaoDe(r) === fSituacao)
+    .sort((a, b) => (b.data_pagamento || b.vencimento || '')
+      .localeCompare(a.data_pagamento || a.vencimento || ''));
+  const trat = id => TRAT.find(t => t.id === id) || {};
+
+  $('t-financeiro').innerHTML = `
+    <div class="grade g4">
+      ${kpi('Fechado no período', brl(fechado), `${acordos.length} acordos`, 'rgba(6,182,212,.28)')}
+      ${kpi('Recebido em conta', brl(cx.recebido),
+            `${cx.pagos.length} lançamentos · ${fechado ? (cx.recebido / fechado * 100).toFixed(0) : 0}% do fechado`,
+            'rgba(163,230,53,.3)')}
+      ${kpi('A receber', brl(cx.aberto), `${cx.abertos.length} lançamentos em aberto`, 'rgba(20,184,166,.26)')}
+      ${kpi('Em atraso', brl(cx.atrasado),
+            cx.atrasados.length ? `${cx.atrasados.length} lançamentos vencidos` : 'nada vencido',
+            cx.atrasados.length ? 'rgba(251,113,133,.32)' : 'rgba(163,230,53,.26)')}
+    </div>
+
+    <div class="cx" style="margin-bottom:14px">
+      <h3>De que é feito o dinheiro</h3>
+      <p class="sub">O acordo dividido por natureza da verba. <b>DM</b> é o que vai para o
+         cliente, <b>HS</b> é o honorário do escritório — e <b>DM+HS</b> é o acordo que foi
+         fechado sem separar as duas coisas, que é o que impede a conta exata.</p>
+      ${porVerba.length ? `<table class="tb">
+        <tr><th>Verba</th><th class="n">Acordos</th><th class="n">Total</th>
+            <th class="n">Recebido</th><th class="n">A receber</th></tr>
+        ${porVerba.map(v => `<tr>
+          <td><span class="marcador"><i style="background:${v.cor}"></i>${esc(v.nome)}</span>
+            <div class="trilho"><i style="width:${v.total / totalVerbas * 100}%;background:${v.cor}"></i></div></td>
+          <td class="n">${v.acordos}</td>
+          <td class="n">${brl2(v.total)}</td>
+          <td class="n" style="color:var(--s5)">${v.pago ? brl2(v.pago) : '—'}</td>
+          <td class="n" style="color:${v.aberto ? 'var(--warn)' : 'var(--txt-3)'}">${v.aberto ? brl2(v.aberto) : '—'}</td>
+        </tr>`).join('')}
+        <tr class="tot"><td>Total</td><td class="n">${acordos.length}</td>
+          <td class="n">${brl2(soma(porVerba, x => x.total))}</td>
+          <td class="n">${brl2(cx.recebido)}</td>
+          <td class="n">${brl2(cx.aberto)}</td></tr>
+      </table>` : '<div class="sem-contato">Nenhuma verba discriminada no período.</div>'}
+      ${(() => {
+        // A diferença entre o fechado e o discriminado tem que aparecer. Se
+        // ficar escondida, um total menor passa por erro do sistema quando na
+        // verdade é acordo que ainda não foi lançado no ADVBox.
+        const semVerba = acordos.filter(t => !vb.some(v => v.tratativa_id === t.id));
+        const falta = fechado - soma(porVerba, x => x.total);
+        if (!semVerba.length && Math.abs(falta) < 1) return '';
+        return `<div class="nota" style="margin:14px 0 0">
+          <b>${brl2(Math.abs(falta))}</b> ainda sem desmembramento${semVerba.length
+            ? `, em <b>${semVerba.length}</b> acordo${semVerba.length === 1 ? '' : 's'}` : ''}.
+          É acordo fechado que ainda não tem lançamento no ADVBox — não é número faltando aqui.
+        </div>`;
+      })()}
+    </div>
+
+    <div class="cx" style="margin-bottom:14px">
+      <h3>Entrada de caixa mês a mês</h3>
+      <p class="sub">Verde é o que entrou; âmbar é o que está lançado e ainda não entrou.</p>
+      ${meses.length ? `<div style="display:flex;gap:6px;align-items:flex-end">
+        ${meses.map(x => `<div style="flex:1;min-width:0;max-width:96px;display:flex;
+            flex-direction:column;align-items:center;gap:6px">
+          <div style="height:150px;width:100%;display:flex;flex-direction:column-reverse;
+               align-items:center;justify-content:flex-start">
+            <div title="recebido ${brl2(x.pago)}" style="width:64%;height:${x.pago / teto * 100}%;
+                 min-height:${x.pago ? 2 : 0}px;background:linear-gradient(180deg,#BEF264,#84CC16)"></div>
+            <div title="a receber ${brl2(x.aberto)}" style="width:64%;height:${x.aberto / teto * 100}%;
+                 min-height:${x.aberto ? 2 : 0}px;background:linear-gradient(180deg,#FCD34D,#F59E0B);
+                 border-radius:4px 4px 0 0"></div>
+          </div>
+          <div style="font-size:10.5px;color:var(--txt-3)">${x.m.slice(5)}/${x.m.slice(2, 4)}</div>
+          <div class="mono" style="font-size:10px;color:var(--txt-2)">${kk(x.pago + x.aberto)}</div>
+        </div>`).join('')}
+      </div>` : '<div class="sem-contato">Sem lançamento no período.</div>'}
+    </div>
+
+    <div class="cx">
+      <h3>Lançamentos — ${lanc.length}</h3>
+      <p class="sub">Cada linha é um recebimento: uma parcela, um vencimento, uma situação.
+         Clique para abrir a tratativa.</p>
+      <div class="filtros" style="margin-bottom:14px">
+        <button class="chip ${!fSituacao ? 'on' : ''}" data-sit="">Todos</button>
+        ${SITUACOES.map(s => `<button class="chip ${fSituacao === s ? 'on' : ''}" data-sit="${s}">
+          ${s} — ${cx.todos.filter(r => situacaoDe(r) === s).length}</button>`).join('')}
+      </div>
+      ${lanc.length ? `<div class="tb-rolagem"><table class="tb-lista">
+        <thead><tr><th>Processo</th><th>Autor</th><th>Verba</th><th>Parcela</th>
+          <th>Vencimento</th><th>Pagamento</th><th>Situação</th><th class="n">Valor</th></tr></thead>
+        <tbody>${lanc.slice(0, 400).map(r => {
+          const t = trat(r.tratativa_id), s = situacaoDe(r);
+          return `<tr data-abrir="${r.tratativa_id}">
+            <td class="mono">${esc(t.processo || r.processo || '—')}</td>
+            <td>${esc((t.autor || r.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
+            <td><span class="marcador"><i style="background:${verba(r.verba).cor}"></i>${esc(verba(r.verba).nome)}</span></td>
+            <td class="mono">${esc(r.parcela_rotulo || '—')}</td>
+            <td class="mono">${dtb(r.vencimento)}</td>
+            <td class="mono">${dtb(r.data_pagamento)}</td>
+            <td style="color:${CORSIT[s]}">${s}${r.origem_registro === 'sistema' ? ' <span style="color:var(--txt-3);font-size:10px">(previsão)</span>' : ''}</td>
+            <td class="n">${brl2(r.valor)}</td>
+          </tr>`;
+        }).join('')}</tbody></table></div>
+        ${lanc.length > 400 ? `<div class="resumo-filtro">Mostrando 400 de ${lanc.length}.</div>` : ''}`
+      : '<div class="sem-contato">Nenhum lançamento nesse filtro.</div>'}
+    </div>`;
+
+  document.querySelectorAll('[data-sit]').forEach(b => b.onclick = () => {
+    fSituacao = b.dataset.sit; desenha();
+  });
+}
+
+/* ==================================================================
+   RANKING DE OPERADOR
+   Base para as regras de comissao. O ranking vem de view: se a tela
+   calculasse por fora, um dia divergiria do painel.
+   ================================================================== */
+let ordemRanking = 'valor_fechado';
+const COLUNAS_RANK = [
+  { id: 'valor_fechado',   rotulo: 'Valor fechado',   fmt: v => brl2(v) },
+  { id: 'valor_recebido',  rotulo: 'Recebido',        fmt: v => brl2(v) },
+  { id: 'acordos',         rotulo: 'Acordos',         fmt: v => v },
+  { id: 'taxa_conversao',  rotulo: 'Conversão',       fmt: v => (+v).toFixed(1) + '%' },
+  { id: 'tratativas',      rotulo: 'Tratativas',      fmt: v => v },
+  { id: 'ticket_medio',    rotulo: 'Ticket médio',    fmt: v => brl2(v) },
+];
+
+function telaRanking() {
+  const l = [...RANKING].sort((a, b) => (+b[ordemRanking] || 0) - (+a[ordemRanking] || 0));
+  const teto = Math.max(...l.map(x => +x[ordemRanking] || 0), 1);
+  const col = COLUNAS_RANK.find(c => c.id === ordemRanking);
+  const ativos = l.filter(x => x.ativo);
+
+  $('t-ranking').innerHTML = `
+    <div class="cab">
+      <div class="olho">Equipe · ${ativos.length} operadores na ativa</div>
+      <h1>Ranking de operador</h1>
+      <p>Tudo o que cada operador fez, do primeiro contato ao dinheiro em conta.
+         Quem saiu do escritório continua aqui: o trabalho dele não deixou de existir,
+         e sem ele o histórico de 2026 não fecha.</p>
+    </div>
+
+    <div class="filtros">
+      <span style="font-size:11px;color:var(--txt-3);margin-right:4px">ordenar por</span>
+      ${COLUNAS_RANK.map(c => `<button class="chip ${c.id === ordemRanking ? 'on' : ''}"
+        data-rank="${c.id}">${c.rotulo}</button>`).join('')}
+    </div>
+
+    <div class="tb-rolagem"><table class="tb-lista">
+      <thead><tr><th>#</th><th>Operador</th><th class="n">Tratativas</th>
+        <th class="n">Decididas</th><th class="n">Acordos</th><th class="n">Conversão</th>
+        <th class="n">Valor fechado</th><th class="n">Recebido</th>
+        <th class="n">A receber</th><th class="n">Ticket médio</th>
+        <th class="n">Dias p/ protocolo</th></tr></thead>
+      <tbody>${l.map((x, i) => `<tr>
+        <td class="mono" style="color:var(--txt-3)">${i + 1}</td>
+        <td><b>${esc(x.operador)}</b>${x.ativo ? '' : ' <span class="pilula off">saiu</span>'}
+          <div class="trilho"><i style="width:${(+x[ordemRanking] || 0) / teto * 100}%;
+            background:linear-gradient(90deg,#06B6D4,#A3E635)"></i></div></td>
+        <td class="n">${x.tratativas}</td>
+        <td class="n">${x.decididas}</td>
+        <td class="n">${x.acordos}</td>
+        <td class="n" style="color:${+x.taxa_conversao >= 25 ? 'var(--s6)'
+          : +x.taxa_conversao >= 12 ? 'var(--warn)' : 'var(--txt-2)'}">${(+x.taxa_conversao).toFixed(1)}%</td>
+        <td class="n">${brl2(x.valor_fechado)}</td>
+        <td class="n" style="color:var(--s5)">${+x.valor_recebido ? brl2(x.valor_recebido) : '—'}</td>
+        <td class="n" style="color:${+x.valor_a_receber ? 'var(--warn)' : 'var(--txt-3)'}">${+x.valor_a_receber ? brl2(x.valor_a_receber) : '—'}</td>
+        <td class="n">${brl2(x.ticket_medio)}</td>
+        <td class="n">${x.dias_ate_protocolo == null ? '—' : (+x.dias_ate_protocolo).toFixed(1)}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <div class="resumo-filtro">Ordenado por <b>${col.rotulo}</b>. O ranking lê o histórico
+      inteiro — os filtros do topo não se aplicam a ele.</div>`;
+
+  document.querySelectorAll('[data-rank]').forEach(b => b.onclick = () => {
+    ordemRanking = b.dataset.rank; desenha();
+  });
+}
+
 function telaPainel(l) {
-  const fechadas   = l.filter(t => t.status === FECHADO);
+  const fechadas   = l.filter(ehAcordo);
   const decididas  = l.filter(t => fase(t.status).conta_no_denominador);
   const vivas      = l.filter(t => !fase(t.status).conta_no_denominador);
-  const fat        = faturadas(l);
+  const fat        = faturadas(l).filter(ehAcordo);
   const semProt    = fechadas.filter(t => !t.data_protocolo);
   const taxa       = decididas.length ? fechadas.length / decididas.length * 100 : 0;
   const valorFat   = soma(fat, t => t.valor);
   const valorFech  = soma(fechadas, t => t.valor);
   const ticket     = fechadas.length ? valorFech / fechadas.length : 0;
-  const aReceber   = PARCELAS.filter(p => !p.recebido &&
-                       l.some(t => t.id === p.tratativa_id));
-  const vencidas   = aReceber.filter(p => p.previsao && p.previsao < ISO(HOJE));
+  // Dinheiro: o que entrou em conta e o que ainda nao entrou, por lancamento.
+  const cx         = caixaDe(l);
+  const aReceber   = cx.abertos;
+  const vencidas   = cx.atrasados;
 
   /* ---- evolução mês a mês ---- */
   // Um mes entra quando houve protocolo nele. Meses sem movimento entre dois
@@ -450,7 +709,7 @@ function telaPainel(l) {
     const o = mapa.get(k) || { k, total: 0, dec: 0, ganhas: 0, valor: 0 };
     o.total++;
     if (fase(t.status).conta_no_denominador) o.dec++;
-    if (t.status === FECHADO) { o.ganhas++; o.valor += +t.valor || 0; }
+    if (ehAcordo(t)) { o.ganhas++; o.valor += +t.valor || 0; }
     mapa.set(k, o);
   });
   const linhas = [...mapa.values()]
@@ -476,14 +735,16 @@ function telaPainel(l) {
             `${new Set(l.map(t => t.processo)).size} processos distintos`, 'rgba(99,102,241,.26)')}
       ${kpi('Vivas na esteira', vivas.length,
             'ainda podem virar acordo', 'rgba(20,184,166,.26)')}
+      ${kpi('A receber', brl(soma(aReceber, p => p.valor)),
+            vencidas.length ? `${vencidas.length} em atraso · ${brl(soma(vencidas, p => p.valor))}`
+                            : `${aReceber.length} lançamentos em dia`,
+            vencidas.length ? 'rgba(251,113,133,.3)' : 'rgba(20,184,166,.26)')}
       ${kpi('Aguardando protocolo', semProt.length,
             semProt.length ? `${brl(soma(semProt, t => t.valor))} fechados sem protocolar`
                            : 'nenhuma minuta parada',
             semProt.length ? 'rgba(245,158,11,.3)' : 'rgba(163,230,53,.26)')}
-      ${kpi('Parcelas a receber', aReceber.length,
-            vencidas.length ? `${vencidas.length} já vencidas · ${brl(soma(vencidas, p => p.valor))}`
-                            : `${brl(soma(aReceber, p => p.valor))} em dia`,
-            vencidas.length ? 'rgba(251,113,133,.3)' : 'rgba(163,230,53,.26)')}
+      ${kpi('Recebido em conta', brl(cx.recebido),
+            `${cx.pagos.length} lançamentos pagos`, 'rgba(163,230,53,.28)')}
     </div>
 
     ${resultadosDaBusca(l)}
@@ -573,8 +834,20 @@ const numero   = v => {
   return Number.isFinite(n) ? n : null;
 };
 
+/* Quem esta logado e quem esta abrindo a tratativa. Preencher o operador
+   sozinho e o mesmo que ja se faz com o status: poupa um clique por tratativa
+   e evita o campo em branco, que depois some do ranking e da comissao. */
+function operadorDaVez() {
+  const eu = (sessao && (sessao.nome || sessao.email)) || '';
+  if (!eu) return null;
+  const achado = operadores().find(p => p.nome === eu)
+    || operadores().find(p => (p.email || '').toLowerCase() === String(sessao.email || '').toLowerCase());
+  return achado ? achado.nome : null;
+}
+
 function abreForm(t) {
   rascunho = t ? { ...t } : vazio();
+  if (!rascunho.id && !rascunho.operador) rascunho.operador = operadorDaVez();
   // Tratativa nova ganha a chave aqui, antes de qualquer digitação: assim ela
   // acompanha o rascunho guardado e repetir o salvamento nunca duplica.
   if (!rascunho.id && !rascunho.chave_cliente) rascunho.chave_cliente = ANDON_REDE.chaveNova();
@@ -684,7 +957,8 @@ function etapaTratativa() {
 function etapaFaturamento() {
   const r = rascunho;
   const parcelado = r.forma_pagamento === 'parcelado';
-  const p = r.id ? parcelasDe(r.id) : [];
+  const p = r.id ? recebimentosDe(r.id) : [];
+  const v = r.id ? verbasDe(r.id) : [];
   return `<div class="etapa ${etapa === 3 ? 'on' : ''}" id="e3">
     <div class="dupla">
       ${campo('Status', `<input class="inp" value="${esc(fase(r.status).nome)}" disabled>`)}
@@ -711,15 +985,55 @@ function etapaFaturamento() {
       ${campo('Recebido?', escolha('f3-recebido', [{ v: 'false', l: 'Não' }, { v: 'true', l: 'Sim' }], String(!!r.recebido)))}
     </div>
     ${campo('Data do recebimento', entrada('f3-datarec', 'date', r.data_recebimento))}
-    ${p.length ? `<div class="bloco"><h4>Parcelas — ${p.length}</h4>
-      <table class="parcelas-tb">${p.map(x => `<tr>
-        <td>${x.numero} de ${p.length}</td>
-        <td class="mono" style="color:var(--txt-3)">${dtb(x.previsao)}</td>
-        <td class="n">${brl2(x.valor)}</td>
-        <td class="n" style="color:${x.recebido ? 'var(--s5)' : 'var(--txt-3)'}">${x.recebido ? 'recebido' : 'a receber'}</td>
-      </tr>`).join('')}</table>
-      <div class="dica">Geradas pelo banco a partir do valor, da quantidade e da previsão. Salve para atualizar.</div></div>` : ''}
+    ${blocoVerbas(v, +r.valor || 0)}
+    ${blocoRecebimentos(p)}
     ${campo('Observações', `<textarea class="inp" id="f3-obs" rows="3">${esc(r.observacoes || '')}</textarea>`)}
+  </div>`;
+}
+
+/* De que é feito este acordo. É a informação que separa o que vai para o
+   cliente do que fica no escritório — e sem ela não existe regra de comissão. */
+function blocoVerbas(v, valorAcordo) {
+  const total = soma(v, x => x.valor_total);
+  const falta = Math.round((valorAcordo - total) * 100) / 100;
+  return `<div class="bloco"><h4>Desmembramento do valor${v.length ? ` — ${v.length}` : ''}</h4>
+    ${v.length ? `<table class="parcelas-tb">
+      ${v.map(x => `<tr>
+        <td><span class="marcador"><i style="background:${verba(x.verba).cor}"></i>${esc(verba(x.verba).nome)}</span>
+          ${x.detalhe ? `<div class="dica" style="margin:2px 0 0">${esc(x.detalhe)}</div>` : ''}</td>
+        <td class="n">${brl2(x.valor_total)}</td>
+        <td class="n" style="color:var(--s5)">${+x.valor_pago ? brl2(x.valor_pago) : '—'}</td>
+        <td class="n" style="color:${+x.valor_em_aberto ? 'var(--warn)' : 'var(--txt-3)'}">${+x.valor_em_aberto ? brl2(x.valor_em_aberto) : '—'}</td>
+      </tr>`).join('')}
+      <tr><td><b>Total</b></td><td class="n"><b>${brl2(total)}</b></td>
+        <td class="n"></td><td class="n"></td></tr>
+    </table>
+    ${falta ? `<div class="dica" style="color:var(--warn)">
+      ${falta > 0 ? `Faltam ${brl2(falta)} para fechar com o valor do acordo.`
+                  : `O desmembramento passa ${brl2(-falta)} do valor do acordo.`}
+      Confira com o financeiro.</div>` : ''}`
+    : `<div class="dica">Ainda sem desmembramento. Ele chega junto com o lançamento
+       do ADVBox — é lá que se separa o que é do cliente e o que é do escritório.</div>`}
+  </div>`;
+}
+
+/* Quando o dinheiro entra. Uma lista só: o que veio do ADVBox e o que o
+   sistema previu, marcado como previsão para ninguém confundir com o realizado. */
+function blocoRecebimentos(p) {
+  if (!p.length) return '';
+  const rec = soma(p.filter(x => situacaoDe(x) === 'PAGO'), x => x.valor);
+  return `<div class="bloco"><h4>Recebimentos — ${p.length}</h4>
+    <table class="parcelas-tb">${p.map(x => {
+      const s = situacaoDe(x);
+      return `<tr>
+        <td>${x.parcela_rotulo ? `parcela ${esc(x.parcela_rotulo)}` : (x.verba ? esc(verba(x.verba).nome) : 'lançamento')}
+          ${x.origem_registro === 'sistema' ? '<span class="dica" style="margin:0">previsão do sistema</span>' : ''}</td>
+        <td class="mono" style="color:var(--txt-3)">${dtb(x.data_pagamento || x.vencimento)}</td>
+        <td class="n">${brl2(x.valor)}</td>
+        <td class="n" style="color:${CORSIT[s]}">${s}</td>
+      </tr>`;
+    }).join('')}</table>
+    <div class="dica">Recebido até aqui: <b>${brl2(rec)}</b> de ${brl2(soma(p, x => x.valor))}.</div>
   </div>`;
 }
 
@@ -1007,9 +1321,9 @@ async function salvar() {
 async function releParcelas(id) {
   const [linha, parcelas] = await Promise.all([
     ler('tratativa', `select=*&id=eq.${id}&limit=1`),
-    ler('acordo_parcela', `select=*&tratativa_id=eq.${id}&order=numero.asc`)
+    ler('acordo_recebimento', `select=*&tratativa_id=eq.${id}&order=vencimento.asc`)
   ]);
-  PARCELAS = PARCELAS.filter(p => p.tratativa_id !== +id).concat(parcelas || []);
+  RECEB = RECEB.filter(p => p.tratativa_id !== +id).concat(parcelas || []);
   const nova = linha && linha[0];
   if (nova) {
     const i = TRAT.findIndex(t => t.id === nova.id);
@@ -1078,9 +1392,11 @@ function pintaSessao() {
   $('sair').onclick = () => SESSAO.sair();
 }
 
-const TELAS = [{ id: 'painel', rotulo: 'Painel de Gestão' },
-               { id: 'kanban', rotulo: 'Esteira' },
-               { id: 'lista',  rotulo: 'Tratativas' }];
+const TELAS = [{ id: 'painel',     rotulo: 'Painel de Gestão' },
+               { id: 'financeiro', rotulo: 'Financeiro' },
+               { id: 'ranking',    rotulo: 'Ranking' },
+               { id: 'kanban',     rotulo: 'Esteira' },
+               { id: 'lista',      rotulo: 'Tratativas' }];
 
 function desenha() {
   $('nav').innerHTML = TELAS.map(t =>
@@ -1092,8 +1408,13 @@ function desenha() {
   TELAS.forEach(t => $('t-' + t.id).classList.toggle('on', t.id === aba));
 
   const l = filtradas();
-  pintaFiltros(); pintaResumo(l);
+  // O ranking le o historico inteiro; deixar a barra de filtros por cima
+  // dele faria a tela parecer filtrada quando nao esta.
+  $('filtros').style.display = aba === 'ranking' ? 'none' : '';
+  if (aba !== 'ranking') { pintaFiltros(); pintaResumo(l); }
   if (aba === 'painel') telaPainel(l);
+  else if (aba === 'financeiro') telaFinanceiro(l);
+  else if (aba === 'ranking') telaRanking();
   else if (aba === 'kanban') telaKanban(l);
   else telaLista(l);
 

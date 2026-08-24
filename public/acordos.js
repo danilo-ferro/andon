@@ -129,6 +129,22 @@ const CANAIS  = ['WHATSAPP', 'E-MAIL', 'TELEFONE', 'AUDIÊNCIA', 'AUTOS', 'NÃO 
 const PRODUTOS = ['Limpa Nome (LN)', 'CCS', 'SCR', 'Bancários / Golpes', 'Estratégico', 'Trabalhista'];
 const FECHADO = 'ACORDO FECHADO';
 
+/* ---------- o caminho entre "acertado" e "fechado" ----------
+   Acertar o acordo na conversa não é fechá-lo. Depois do sim vem a minuta,
+   confeccionada pela parte contrária; depois a assinatura do advogado do caso;
+   e só o protocolo torna o acordo fechado para o financeiro. São três esperas
+   distintas, cada uma com a bola no pé de outra pessoa — e enquanto o sistema
+   não as separava, tudo isso era "em tratativa" e ninguém sabia com quem o
+   caso estava parado. */
+const AGUARDA_MINUTA     = 'AGUARDANDO ENVIO DA MINUTA';
+const AGUARDA_ASSINATURA = 'AGUARDANDO ASSINATURA DA MINUTA';
+const AGUARDA_PROTOCOLO  = 'AGUARDANDO PROTOCOLO';
+const FORMALIZANDO = [AGUARDA_MINUTA, AGUARDA_ASSINATURA, AGUARDA_PROTOCOLO];
+const formalizando = s => FORMALIZANDO.includes(s);
+/* Acertado com valor: as três fases de formalização mais o acordo fechado.
+   É o conjunto que o financeiro precisa enxergar. */
+const acertado = s => s === FECHADO || formalizando(s);
+
 async function carrega() {
   const [t, p, r, e, c, f, pc, vb, cv, rk, fer, par] = await Promise.all([
     lerTudo('tratativa'),
@@ -404,14 +420,51 @@ function telaKanban(l) {
 }
 
 /* ---------- lista ---------- */
+/* ---------- ordenação da lista ----------
+   Cada coluna sabe de onde tira o valor e se é texto ou número. Ordenar pelo
+   que está escrito na tela seria mais curto e erraria em três lugares: "R$ 1.000"
+   viria antes de "R$ 900", "20 dias" antes de "9 dias", e o status sairia em
+   ordem alfabética em vez da ordem do funil. */
+const COLUNAS = [
+  { k: 'processo',  rot: 'Processo',  v: t => t.processo || '' },
+  { k: 'autor',     rot: 'Autor',     v: t => t.autor || '' },
+  { k: 'reu',       rot: 'Réu',       v: t => t.reu || '' },
+  { k: 'status',    rot: 'Status',    n: true, v: t => fase(t.status).ordem ?? 99 },
+  { k: 'fase',      rot: 'Fase',      v: t => t.fase || '' },
+  { k: 'estado',    rot: 'UF',        v: t => t.estado || '' },
+  { k: 'advogado',  rot: 'Advogado',  v: t => t.advogado || '' },
+  { k: 'operador',  rot: 'Operador',  v: t => t.operador || '' },
+  { k: 'data',      rot: 'Data',      v: t => t.data || '' },
+  { k: 'valor',     rot: 'Valor',     n: true, num: true, v: t => +t.valor || 0 },
+  { k: 'parada',    rot: 'Parado',    n: true, num: true, v: parada },
+  { k: 'duracao',   rot: 'Levou',     n: true, num: true, v: duracao }
+];
+/* Data primeiro e da mais nova para a mais velha: é como a equipe lê a lista. */
+let ordemLista = { campo: 'data', dir: -1 };
+
+function ordenaLista(l) {
+  const c = COLUNAS.find(x => x.k === ordemLista.campo) || COLUNAS[8];
+  const d = ordemLista.dir;
+  return [...l].sort((a, b) => {
+    const x = c.v(a), y = c.v(b);
+    // Sem valor vai para o fim, dê qual for o sentido: "—" no topo não informa nada.
+    if (x === null || x === undefined) return y === null || y === undefined ? 0 : 1;
+    if (y === null || y === undefined) return -1;
+    const r = c.num ? x - y : String(x).localeCompare(String(y), 'pt-BR', { numeric: true });
+    return r * d;
+  });
+}
+
 function telaLista(l) {
-  const ord = [...l].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const ord = ordenaLista(l);
   $('t-lista').innerHTML = `<div class="tb-rolagem"><table class="tb-lista">
     <thead><tr>
-      <th>Processo</th><th>Autor</th><th>Réu</th><th>Status</th>
-      <th>Fase</th><th>UF</th><th>Advogado</th><th>Operador</th>
-      <th>Data</th><th class="n">Valor</th><th class="n">Parado</th>
-      <th class="n">Levou</th>
+      ${COLUNAS.map(c => {
+        const ativa = ordemLista.campo === c.k;
+        return `<th class="ord ${c.n ? 'n' : ''} ${ativa ? 'on' : ''}" data-ord="${c.k}"
+          title="Classificar por ${esc(c.rot)}">${esc(c.rot)}<i class="seta">${
+          ativa ? (ordemLista.dir === 1 ? '▲' : '▼') : '↕'}</i></th>`;
+      }).join('')}
     </tr></thead><tbody>
     ${ord.slice(0, 600).map(t => {
       const d = parada(t);
@@ -437,6 +490,18 @@ function telaLista(l) {
     }).join('')}</tbody></table></div>
     <div class="resumo-filtro">${resumoDuracao(ord)}${
       ord.length > 600 ? ` · mostrando 600 de ${ord.length}` : ''}</div>`;
+
+  document.querySelectorAll('#t-lista [data-ord]').forEach(th => th.onclick = () => {
+    const k = th.dataset.ord;
+    const c = COLUNAS.find(x => x.k === k);
+    /* Mesma coluna: inverte. Coluna nova: começa pelo sentido que interessa —
+       texto de A a Z, número e data do maior/mais recente para o menor. */
+    ordemLista = ordemLista.campo === k
+      ? { campo: k, dir: -ordemLista.dir }
+      : { campo: k, dir: (c && (c.num || k === 'data')) ? -1 : 1 };
+    telaLista(l);
+    ligaAbrir();
+  });
 }
 
 /* Quanto tempo o escritório leva para encerrar uma tratativa, do primeiro
@@ -566,6 +631,77 @@ function caixaDe(l) {
 
 let fSituacao = '';   // filtro proprio da tela financeira
 
+/* Da minuta assinada ao protocolo: o pedaço do caminho que é do financeiro.
+   É medido só onde as duas datas existem — inventar uma delas para aumentar a
+   amostra daria um número bonito e falso. */
+function tempoAteProtocolo(l) {
+  const d = l.map(t => (t.data_minuta_assinada && t.data_protocolo)
+      ? Math.round((new Date(t.data_protocolo + 'T12:00:00')
+                  - new Date(t.data_minuta_assinada + 'T12:00:00')) / 864e5)
+      : null)
+    .filter(x => x !== null && x >= 0)
+    .sort((a, b) => a - b);
+  if (!d.length) return null;
+  const m = Math.floor(d.length / 2);
+  return { n: d.length,
+           media: Math.round(d.reduce((s, x) => s + x, 0) / d.length),
+           mediana: d.length % 2 ? d[m] : Math.round((d[m - 1] + d[m]) / 2),
+           min: d[0], max: d[d.length - 1] };
+}
+
+/* Acordo acertado que ainda não é acordo fechado. Enquanto essas fases não
+   existiam, tudo isso ficava como "em tratativa" e o financeiro só descobria o
+   caso quando ele já estava protocolado. */
+function blocoFormalizando(l) {
+  const esperando = l.filter(t => t.status === AGUARDA_PROTOCOLO)
+    .sort((a, b) => (a.data_minuta_assinada || a.data_atualizacao || '')
+      .localeCompare(b.data_minuta_assinada || b.data_atualizacao || ''));
+  const antes = FORMALIZANDO.slice(0, 2).map(s => ({ s, l: l.filter(t => t.status === s) }));
+  const chegando = soma(antes.flatMap(x => x.l), t => t.valor);
+  const t = tempoAteProtocolo(l.filter(x => x.data_minuta_assinada && x.data_protocolo));
+  if (!esperando.length && !antes.some(x => x.l.length) && !t) return '';
+
+  return `<div class="cx" style="margin-bottom:14px">
+    <h3>Aguardando protocolo — ${esperando.length}</h3>
+    <p class="sub">Minuta assinada e devolvida à parte contrária. A partir daqui o
+       acompanhamento é do financeiro: vira <b>Acordo fechado</b> quando o protocolo
+       acontecer. Clique para abrir e atualizar.</p>
+    ${esperando.length ? `<div class="tb-rolagem"><table class="tb-lista">
+      <thead><tr><th>Processo</th><th>Autor</th><th>Réu</th><th>Advogado</th>
+        <th>Operador</th><th>Minuta assinada</th><th class="n">Esperando há</th>
+        <th class="n">Valor</th></tr></thead>
+      <tbody>${esperando.map(x => {
+        const esp = x.data_minuta_assinada ? dias(x.data_minuta_assinada) : null;
+        return `<tr data-abrir="${x.id}">
+          <td class="mono">${esc(x.processo)}</td>
+          <td>${esc((x.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
+          <td>${esc(x.reu || '—')}</td>
+          <td>${esc(x.advogado || '—')}</td>
+          <td>${esc(x.operador || '—')}</td>
+          <td class="mono">${dtb(x.data_minuta_assinada)}</td>
+          <td class="n" style="color:${esp === null ? 'var(--txt-3)'
+            : esp > 30 ? 'var(--bad)' : esp > 15 ? 'var(--warn)' : 'var(--txt-2)'}">${
+            esp === null ? 'sem data' : esp + 'd'}</td>
+          <td class="n">${x.valor ? brl2(x.valor) : '—'}</td>
+        </tr>`;
+      }).join('')}
+      <tr class="tot"><td colspan="7">Total aguardando protocolo</td>
+        <td class="n">${brl2(soma(esperando, x => x.valor))}</td></tr>
+      </tbody></table></div>`
+      : '<div class="sem-contato">Nada aguardando protocolo neste filtro.</div>'}
+
+    <div class="resumo-filtro">
+      ${antes.map(x => `<b>${x.l.length}</b> ${fase(x.s).nome.toLowerCase()}`).join(' · ')}
+      ${chegando ? ` · <b>${brl2(chegando)}</b> a caminho` : ''}
+      ${t ? `<br>Da assinatura da minuta ao protocolo: <b>${t.n}</b> acordos já fizeram
+        esse caminho · média <b>${t.media} dia${t.media === 1 ? '' : 's'}</b> ·
+        mediana <b>${t.mediana}</b> · mais rápido <b>${t.min}</b> ·
+        mais demorado <b>${t.max}</b>.`
+      : '<br>Nenhum acordo tem as duas datas ainda — a média aparece assim que o primeiro protocolar.'}
+    </div>
+  </div>`;
+}
+
 function telaFinanceiro(l) {
   const acordos = l.filter(ehAcordo);
   const ids = new Set(acordos.map(t => t.id));
@@ -615,6 +751,8 @@ function telaFinanceiro(l) {
             cx.atrasados.length ? `${cx.atrasados.length} lançamentos vencidos` : 'nada vencido',
             cx.atrasados.length ? 'rgba(251,113,133,.32)' : 'rgba(163,230,53,.26)')}
     </div>
+
+    ${blocoFormalizando(l)}
 
     <div class="cx" style="margin-bottom:14px">
       <h3>De que é feito o dinheiro</h3>
@@ -1149,56 +1287,91 @@ function etapaIdentificacao() {
   </div>`;
 }
 
-function etapaTratativa() {
-  const r = rascunho;
-  return `<div class="etapa ${etapa === 2 ? 'on' : ''}" id="e2">
-    <div class="dupla">
-      ${campo('Status', escolha('f2-status', FASES.map(f => ({ v: f.id, l: f.nome })), r.status),
-        'Mudar para <b>Acordo Fechado</b> libera a etapa de Faturamento.')}
-      ${campo('Última atualização', entrada('f2-atualizacao', 'date', r.data_atualizacao))}
-    </div>
-    ${campo('Valor (acordo / tratativa)', entrada('f2-valor', 'number', r.valor, 'step="0.01" min="0" placeholder="0,00"'))}
-    ${campo('Observações', `<textarea class="inp" id="f2-obs" rows="4">${esc(r.observacoes || '')}</textarea>`)}
-  </div>`;
-}
-
-function etapaFaturamento() {
-  const r = rascunho;
+/* Os campos de dinheiro do acordo — discriminação, forma, prazo — moram ora na
+   etapa de Tratativa, ora na de Faturamento, conforme o status. Ficam com os
+   mesmos ids (`f3-…`) nos dois lugares de propósito: as duas situações são
+   excludentes, nunca aparecem juntos, e assim leitura, previsão e discriminação
+   continuam funcionando sem saber em que etapa foram desenhados. */
+function blocoAcordo(r) {
   const parcelado = r.forma_pagamento === 'parcelado';
-  const p = r.id ? recebimentosDe(r.id) : [];
-  return `<div class="etapa ${etapa === 3 ? 'on' : ''}" id="e3">
+  return `${blocoVerbas(r.verbas || [], +r.valor || 0)}
     <div class="dupla">
-      ${campo('Status', `<input class="inp" value="${esc(fase(r.status).nome)}" disabled>`)}
-      ${campo('Minuta assinada em', entrada('f3-minuta', 'date', r.data_minuta_assinada))}
-    </div>
-    <div class="dupla">
-      ${campo('Valor (acordo / tratativa)', entrada('f3-valor', 'number', r.valor, 'step="0.01" min="0"'))}
-      ${campo('Protocolada em <span style="text-transform:none;letter-spacing:0;color:var(--txt-3)">(faturamento)</span>',
-        entrada('f3-protocolo', 'date', r.data_protocolo),
-        'É esta data que conta como faturamento — não a assinatura da minuta.')}
-    </div>
-    <div class="dupla">
-      ${campo('Forma de pagamento', escolha('f3-forma', [{ v: 'unica', l: 'Parcela única' }, { v: 'parcelado', l: 'Parcelado' }], r.forma_pagamento))}
+      ${campo('Forma de pagamento', escolha('f3-forma',
+        [{ v: 'unica', l: 'Parcela única' }, { v: 'parcelado', l: 'Parcelado' }], r.forma_pagamento))}
       ${parcelado ? campo('Quantas parcelas', entrada('f3-parcelas', 'number', r.qtd_parcelas, 'min="2" max="60"')) : '<div></div>'}
     </div>
     <div class="dupla">
       ${campo('Prazo p/ receber (dias)', entrada('f3-prazo', 'number', r.prazo_dias, 'min="0"'))}
-      ${campo('Tipo de prazo', escolha('f3-tipoprazo', [{ v: 'uteis', l: 'úteis' }, { v: 'corridos', l: 'corridos' }], r.tipo_prazo))}
-    </div>
+      ${campo('Tipo de prazo', escolha('f3-tipoprazo',
+        [{ v: 'uteis', l: 'úteis' }, { v: 'corridos', l: 'corridos' }], r.tipo_prazo))}
+    </div>`;
+}
+
+const campoMinuta = r => campo('Minuta assinada em', entrada('f3-minuta', 'date', r.data_minuta_assinada),
+  'A data em que o advogado responsável devolveu a minuta assinada.');
+
+function etapaTratativa() {
+  const r = rascunho;
+  const emFormalizacao = formalizando(r.status);
+  return `<div class="etapa ${etapa === 2 ? 'on' : ''}" id="e2">
     <div class="dupla">
-      ${campo(`Previsão de recebimento ${r.previsao_manual
+      ${campo('Status', escolha('f2-status', FASES.map(f => ({ v: f.id, l: f.nome })), r.status),
+        emFormalizacao
+          ? 'O acordo está acertado e sendo formalizado. <b>Acordo Fechado</b> só depois do protocolo.'
+          : 'Mudar para <b>Acordo Fechado</b> libera a etapa de Faturamento.')}
+      ${campo('Última atualização', entrada('f2-atualizacao', 'date', r.data_atualizacao))}
+    </div>
+    ${campo('Valor (acordo / tratativa)', entrada('f2-valor', 'number', r.valor, 'step="0.01" min="0" placeholder="0,00"'))}
+    ${emFormalizacao ? blocoAcordo(r) : ''}
+    ${r.status === AGUARDA_PROTOCOLO ? campoMinuta(r) : ''}
+    ${campo('Observações', `<textarea class="inp" id="f2-obs" rows="4">${esc(r.observacoes || '')}</textarea>`)}
+    ${r.status === AGUARDA_PROTOCOLO ? `<div class="nota" style="margin-top:14px">
+      Com a minuta assinada e o status em <b>Aguardando protocolo</b>, este acordo
+      passa a aparecer no <b>Financeiro</b>. Daqui em diante o acompanhamento é de
+      lá — e vira <b>Acordo Fechado</b> quando o protocolo acontecer.</div>` : ''}
+  </div>`;
+}
+
+/* Faturamento só existe depois do acordo fechado. Antes disso a etapa fica
+   vazia — e vazia mesmo, sem campos escondidos: os ids são compartilhados com
+   a etapa de Tratativa, e dois campos com o mesmo id na página fariam a tela
+   ler o valor errado. */
+function etapaFaturamento() {
+  const r = rascunho;
+  if (!podeFaturar()) return `<div class="etapa ${etapa === 3 ? 'on' : ''}" id="e3">
+    <div class="sem-contato">Esta etapa abre quando o status for <b>Acordo Fechado</b>,
+      o que acontece depois do protocolo da minuta.</div></div>`;
+
+  const p = r.id ? recebimentosDe(r.id) : [];
+  const temProtocolo = !!r.data_protocolo;
+  return `<div class="etapa ${etapa === 3 ? 'on' : ''}" id="e3">
+    <div class="dupla">
+      ${campo('Status', `<input class="inp" value="${esc(fase(r.status).nome)}" disabled>`)}
+      ${campo('Valor (acordo / tratativa)', entrada('f3-valor', 'number', r.valor, 'step="0.01" min="0"'))}
+    </div>
+    ${blocoAcordo(r)}
+    <div class="dupla">
+      ${campoMinuta(r)}
+      ${campo('Protocolada em <span style="text-transform:none;letter-spacing:0;color:var(--txt-3)">(faturamento)</span>',
+        entrada('f3-protocolo', 'date', r.data_protocolo),
+        'É esta data que conta como faturamento — não a assinatura da minuta.')}
+    </div>
+    ${temProtocolo
+      ? campo(`Previsão de recebimento ${r.previsao_manual
           ? '<span style="text-transform:none;letter-spacing:0;color:var(--warn)">(digitada por você)</span>'
           : '<span style="text-transform:none;letter-spacing:0;color:var(--txt-3)">(calculada)</span>'}`,
         entrada('f3-previsao', 'date', r.previsao),
         r.previsao_manual
           ? 'O sistema parou de recalcular porque você digitou uma data. <button type="button" class="bt-mini" id="f3-recalcular">voltar a calcular</button>'
-          : 'Sai sozinha do protocolo + prazo, pulando fim de semana e feriado. Digite por cima quando o combinado for outro.')}
-      ${campo('Recebido?', escolha('f3-recebido', [{ v: 'false', l: 'Não' }, { v: 'true', l: 'Sim' }], String(!!r.recebido)))}
-    </div>
-    ${campo('Data do recebimento', entrada('f3-datarec', 'date', r.data_recebimento))}
-    ${blocoVerbas(r.verbas || [], +r.valor || 0)}
-    ${blocoRecebimentos(p)}
+          : 'Sai sozinha do protocolo + prazo, pulando fim de semana e feriado. Digite por cima quando o combinado for outro.')
+      : `<div class="dica" style="margin:0 0 14px">A previsão de recebimento abre quando a
+         data do protocolo for preenchida — é dela que a conta sai.</div>`}
     ${campo('Observações', `<textarea class="inp" id="f3-obs" rows="3">${esc(r.observacoes || '')}</textarea>`)}
+    <div class="dupla">
+      ${campo('Recebido?', escolha('f3-recebido', [{ v: 'false', l: 'Não' }, { v: 'true', l: 'Sim' }], String(!!r.recebido)))}
+      ${campo('Data do recebimento', entrada('f3-datarec', 'date', r.data_recebimento))}
+    </div>
+    ${blocoRecebimentos(p)}
   </div>`;
 }
 
@@ -1409,32 +1582,55 @@ function coleta() {
       data: v('f-data') || null, status: v('f-status'), observacoes: v('f-obs') || null
     });
   } else if (etapa === 2) {
+    /* Primeiro o que é comum, depois o que é desta etapa: com o acordo já
+       fechado os dois campos de valor existem ao mesmo tempo (um aqui, outro no
+       faturamento escondido), e quem está digitando é quem tem que mandar. */
+    coletaAcordo();
     Object.assign(r, {
       status: v('f2-status'), data_atualizacao: v('f2-atualizacao') || null,
       valor: numero(v('f2-valor')), observacoes: v('f2-obs') || null
     });
   } else {
-    const previsaoDigitada = v('f3-previsao') || null;
     Object.assign(r, {
-      data_minuta_assinada: v('f3-minuta') || null,
-      valor: numero(v('f3-valor')),
-      data_protocolo: v('f3-protocolo') || null,
-      forma_pagamento: v('f3-forma'),
-      qtd_parcelas: v('f3-forma') === 'parcelado' ? numero(v('f3-parcelas')) : null,
-      prazo_dias: numero(v('f3-prazo')),
-      tipo_prazo: v('f3-tipoprazo'),
       recebido: v('f3-recebido') === 'true',
       data_recebimento: v('f3-datarec') || null,
       observacoes: v('f3-obs') || null
     });
+    coletaAcordo();
+  }
+  talvezGuardeRascunho();
+}
+
+/* Os campos de dinheiro do acordo trocam de etapa conforme o status, e alguns
+   nem aparecem — a previsão só existe depois do protocolo, a minuta só a partir
+   de "Aguardando protocolo". Por isso a leitura é campo a campo, e só do que
+   está na tela: ler um campo ausente devolveria vazio e apagaria em silêncio um
+   dado que a outra etapa tinha gravado. */
+function coletaAcordo() {
+  const r = rascunho;
+  const pega = (id, chave, converte) => {
+    const el = $(id);
+    if (el) r[chave] = converte ? converte(el.value) : (el.value || null);
+  };
+  pega('f3-valor', 'valor', numero);
+  pega('f3-minuta', 'data_minuta_assinada');
+  pega('f3-protocolo', 'data_protocolo');
+  pega('f3-forma', 'forma_pagamento');
+  pega('f3-prazo', 'prazo_dias', numero);
+  pega('f3-tipoprazo', 'tipo_prazo');
+  if ($('f3-forma'))
+    r.qtd_parcelas = $('f3-forma').value === 'parcelado'
+      ? numero($('f3-parcelas') ? $('f3-parcelas').value : null) : null;
+
+  if ($('f3-previsao')) {
     /* Manual e uma decisao de quem digitou, marcada no proprio campo (ver
        ligaForm). Deduzir por comparacao dava falso positivo: bastava o banco
        recalcular diferente para o sistema achar que alguem tinha digitado. */
-    r.previsao = previsaoDigitada;
-    if (!r.previsao_manual) r.previsao = previsaoDoPrazo() || previsaoDigitada;
-    r.verbas = leVerbasDaTela();
+    const digitada = $('f3-previsao').value || null;
+    r.previsao = digitada;
+    if (!r.previsao_manual) r.previsao = previsaoDoPrazo() || digitada;
   }
-  talvezGuardeRascunho();
+  if ($('bloco-verbas')) r.verbas = leVerbasDaTela();
 }
 
 /* Enquanto a tratativa nova não existe no banco, cada passada pelo formulário
@@ -1467,10 +1663,14 @@ function ligaForm() {
   });
   const proc = $('f-processo');
   if (proc) { proc.oninput = avisaDuplicado; proc.onchange = avisaDuplicado; avisaDuplicado(); }
+  // Mudar o status troca os campos que a etapa mostra: redesenha.
   const st2 = $('f2-status');
   if (st2) st2.onchange = () => { coleta(); pintaForm(); };
   const fp = $('f3-forma');
   if (fp) fp.onchange = () => { coleta(); pintaForm(); };
+  // O valor é o total que a discriminação tem que fechar: mudou, o bloco refaz a conta.
+  const vl = $('f2-valor');
+  if (vl) vl.onchange = () => { coleta(); pintaForm(); };
 
   ligaPrevisao();
   ligaVerbas();
@@ -1489,7 +1689,14 @@ function previsaoDoPrazo() {
 
 function ligaPrevisao() {
   const campoPrev = $('f3-previsao');
-  if (!campoPrev) return;
+  const prot = $('f3-protocolo');
+  /* A previsão só existe depois do protocolo — é dele que a conta sai. Então
+     ganhar ou perder essa data muda quais campos a etapa tem, e nos dois
+     sentidos: preencher abre a previsão, apagar a fecha. */
+  if (!campoPrev) {
+    if (prot) prot.onchange = () => { if (prot.value) { coleta(); pintaForm(); } };
+    return;
+  }
 
   const recalcula = () => {
     if (rascunho.previsao_manual) return;
@@ -1499,7 +1706,14 @@ function ligaPrevisao() {
   };
   ['f3-protocolo', 'f3-prazo', 'f3-tipoprazo'].forEach(id => {
     const el = $(id);
-    if (el) { el.oninput = recalcula; el.onchange = recalcula; }
+    if (el) {
+      el.oninput = recalcula;
+      // Apagou o protocolo: a previsão deixa de existir, então redesenha.
+      el.onchange = () => {
+        if (prot && !prot.value) { coleta(); pintaForm(); return; }
+        recalcula();
+      };
+    }
   });
 
   // Digitou por cima: a partir daqui a data é dela.
@@ -1844,6 +2058,14 @@ function desenha() {
   else telaLista(l);
 
 
+  ligaAbrir();
+}
+
+/* Qualquer coisa com data-abrir abre a tratativa: linha de lista, card da
+   esteira, lançamento do financeiro. Fica em função própria porque a lista se
+   redesenha sozinha ao trocar a ordenação, e sem religar isso as linhas
+   parariam de abrir — sem erro nenhum, só um clique que não faz nada. */
+function ligaAbrir() {
   document.querySelectorAll('[data-abrir]').forEach(b => b.onclick = () =>
     abreForm(TRAT.find(t => t.id === +b.dataset.abrir)));
 }

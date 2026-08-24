@@ -77,12 +77,19 @@ fato: por isso pode viver no navegador.
 
 ## Se o esquema do banco mudar
 
-O passo "Aplicar mudanças no esquema" do workflow fica desligado por padrão.
-Para ligar: GitHub → Settings → Secrets and variables → Actions → New secret,
-com o nome `DATABASE_URL` e a string de conexão do Supabase
-(Project Settings → Database → Connection string → URI).
+`supabase/01-esquema.sql` é o **espelho** do banco: ele recria tudo do zero num
+projeto limpo, e é conferido contra o banco de produção — tabelas, colunas,
+índices, funções, views, gatilhos, políticas e a configuração inicial batem
+uma a uma.
 
-A partir daí, todo push também aplica `supabase/01-esquema.sql`.
+Ele **não** serve para atualizar um banco que já existe: rodá-lo por cima de
+uma base viva daria erro na primeira tabela, porque ela já está lá. Mudança
+em banco vivo é migration, aplicada uma vez.
+
+Por isso o passo "Aplicar mudanças no esquema" do workflow fica desligado, e é
+para continuar desligado enquanto o banco atual estiver em uso. O segredo
+`DATABASE_URL` só faz sentido quando o alvo for um projeto novo e vazio —
+mudança de projeto, ambiente de teste, recomeço.
 
 ## Trocar o projeto Supabase
 

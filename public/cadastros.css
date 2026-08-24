@@ -58,8 +58,8 @@
 @media (max-width:560px){.novo-contato{grid-template-columns:1fr}}
 
 /* Sessão e avisos */
-#sessao{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--txt-2)}
-#sessao .quem{font-size:11.5px;color:var(--txt-3);max-width:190px;overflow:hidden;
+#sessao{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--txt-2);min-width:0}
+#sessao .quem{font-size:11.5px;color:var(--txt-3);max-width:150px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .vazio{text-align:center;padding:50px 20px;color:var(--txt-3);font-size:13px;line-height:1.7}
 .carregando{text-align:center;padding:50px;color:var(--txt-3);font-size:13px}

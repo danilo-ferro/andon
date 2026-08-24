@@ -47,7 +47,7 @@ ferramentas/
 
 dados/             fonte da verdade dos dados, delimitado por |
   execucao.psv           946 valores em execução
-  tratativa.psv          1.924 tratativas de acordo
+  tratativa.psv          1.848 tratativas de acordo (um processo, uma linha)
   acordo_verba.psv       285 linhas de discriminação (DM, HS, …)
   acordo_recebimento.psv 315 lançamentos financeiros do ADVBox
   faturado.psv           187 acordos faturados (base antiga, só insumo)
@@ -166,12 +166,13 @@ Duas tabelas, porque são duas perguntas:
 
 | | responde |
 |---|---|
-| `acordo_verba` | **de que** o acordo é feito — DM, HS, DM+HS, TRABALHISTA, OUTROS |
+| `acordo_verba` | **de que** o acordo é feito — DM, HS, TRABALHISTA, OUTROS |
 | `acordo_recebimento` | **quando** cada pedaço entra, e se já entrou |
 
-`DM+HS` não é uma terceira verba: é o acordo que foi fechado sem separar as duas
-coisas. Ele aparece com esse nome de propósito, porque é exatamente onde a conta
-exata deixa de ser possível.
+`DM+HS` existiu enquanto o acordo podia ser fechado sem separar as duas coisas.
+Saiu de uso (`config_verba.ativo = false`): não aparece mais para escolher, mas
+continua visível nas linhas antigas que já a usam — apagar da lista uma verba já
+escolhida faria a linha do histórico trocar de verba sozinha ao ser aberta.
 
 Os totais não viram coluna — são view (`vw_acordo_financeiro`, `vw_verba_mes`,
 `vw_ranking_operador`). Se a tela somasse por fora, um dia divergiria do painel.
@@ -183,13 +184,47 @@ a mesma pergunta seria o caminho mais curto para dois números diferentes na tel
 
 A discriminação é **obrigatória ao fechar um acordo** e se preenche na própria
 tratativa, na etapa de Faturamento. Não vem mais de fora: o ADVBox está sendo
-substituído por este sistema. Quem fechou sem separar as verbas tem a opção de
-dizer isso — `DM + HS (não discriminado)` é uma decisão registrada. O que o
-sistema não aceita é ninguém ter decidido.
+substituído por este sistema.
 
 A diferença entre o valor fechado e o valor discriminado aparece na tela, escrita.
 Escondê-la faria um total menor parecer erro do sistema quando são acordos
 antigos, importados antes de a discriminação virar obrigatória.
+
+## Um processo, uma tratativa
+
+O mesmo processo era lançado duas vezes, e a culpa nunca foi de desatenção: a
+numeração chega com ponto, com hífen ou sem nada, e `5001234-56.2026.8.26.0100`
+não é igual a `50012345620268260100` para nenhuma busca simples. A comparação
+agora ignora tudo o que não é dígito, e ela é a mesma em três lugares:
+
+**No banco**, `chave_processo(processo)` e um índice único parcial sobre ela.
+É a única trava que não depende da tela estar certa.
+
+**Enquanto a pessoa digita**, o campo do processo mostra o lançamento que já
+existe — status, partes, operador, data — com um botão que abre aquela tratativa.
+Avisar na hora vale mais do que deixar preencher a tela inteira para recusar no
+fim.
+
+**Ao salvar**, a gravação é barrada com o processo, o autor e o réu do registro
+que já existe. Se alguém criou o mesmo processo em outra aba enquanto esta estava
+aberta, quem barra é o índice — e o erro cru do Postgres vira frase em português.
+
+Os duplicados que já existiam foram fundidos: **1964 → 1875 tratativas**, sem
+verba nem recebimento órfão. Onde havia mais de uma linha para o mesmo processo,
+ficou a **mais atualizada**. Isso mexeu em três casos que estavam como acordo
+fechado e cuja linha mais recente dizia outra coisa (238 → 235 acordos), sem
+mudar um centavo do valor fechado: nenhum dos três tinha valor.
+
+## Quanto tempo leva uma tratativa
+
+Na lista, tratativa encerrada mostra quanto levou da 1ª tentativa até a última
+atualização, e o rodapé traz média, mediana e os extremos do filtro aplicado.
+
+O rodapé mostra **duas médias**, de propósito. Boa parte do histórico da planilha
+veio com uma data só, e essas linhas entram como "mesmo dia" — somadas, derrubam
+a média de ~22 para ~4 dias. Isso não é o escritório fechando rápido, é dado que
+faltou. Por isso aparecem a média cheia e a média sem as linhas de data única,
+com a contagem de quantas foram.
 
 ## Quando a rede falha
 

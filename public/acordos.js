@@ -58,6 +58,11 @@ async function api(caminho, opcoes, jaRenovou) {
         msg = 'Algum valor não é um número válido. Confira o valor e as parcelas.';
       else if (/violates check constraint/i.test(d.message || ''))
         msg = 'Um dos campos ficou com opção inválida. Reabra a tratativa e escolha de novo.';
+      // O índice único é a trava final: a tela também barra, mas alguém pode
+      // ter criado o mesmo processo em outra aba enquanto esta estava aberta.
+      else if (/tratativa_processo_uk/i.test((d.message || '') + (d.details || '')))
+        msg = 'Este processo já tem tratativa no sistema. Recarregue a tela e abra a que '
+            + 'existe — um processo tem uma tratativa só.';
       else if (d.message) msg = d.message;
     } catch { /* nao era JSON: fica o texto cru mesmo */ }
     throw new Error(msg);
@@ -214,6 +219,23 @@ const ehAcordo = t => t.status === FECHADO && t.acordo_principal !== false;
 const finalizada = t => !!fase(t.status).finalizada;
 /* Dias parados, ou null quando não há relógio para correr. */
 const parada = t => finalizada(t) ? null : dias(t.data_atualizacao || t.data);
+
+/* Quanto a tratativa levou para acabar: da 1ª tentativa até a última mexida.
+   Só faz sentido para caso encerrado — em caso vivo isso seria idade, não
+   duração. Mesma conta do índice do banco: processo é comparado só por dígito,
+   porque a mesma numeração aparece com ponto, hífen ou nada. */
+function duracao(t) {
+  if (!finalizada(t) || !t.data) return null;
+  const fim = t.data_atualizacao || t.data;
+  const d = Math.round((new Date(fim + 'T12:00:00') - new Date(t.data + 'T12:00:00')) / 864e5);
+  return d >= 0 ? d : null;
+}
+const chaveProcesso = p => String(p || '').replace(/[^0-9]/g, '');
+const jaExiste = (processo, exceto) => {
+  const k = chaveProcesso(processo);
+  if (!k) return null;
+  return TRAT.find(t => chaveProcesso(t.processo) === k && t.id !== exceto) || null;
+};
 
 /* ---------- filtros ---------- */
 function filtradas() {
@@ -389,9 +411,11 @@ function telaLista(l) {
       <th>Processo</th><th>Autor</th><th>Réu</th><th>Status</th>
       <th>Fase</th><th>UF</th><th>Advogado</th><th>Operador</th>
       <th>Data</th><th class="n">Valor</th><th class="n">Parado</th>
+      <th class="n">Levou</th>
     </tr></thead><tbody>
     ${ord.slice(0, 600).map(t => {
       const d = parada(t);
+      const dur = duracao(t);
       return `<tr data-abrir="${t.id}">
         <td class="mono">${esc(t.processo)}</td>
         <td>${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
@@ -406,9 +430,44 @@ function telaLista(l) {
         <td class="n" style="color:${d === null ? 'var(--txt-3)'
           : d > 45 ? 'var(--bad)' : d > 20 ? 'var(--warn)' : 'var(--txt-2)'}">${
           d === null ? (finalizada(t) ? 'encerrada' : '—') : d + 'd'}</td>
+        <td class="n" style="color:var(--txt-2)">${
+          dur === null ? '—' : dur === 0 ? 'mesmo dia'
+          : dur + (dur === 1 ? ' dia' : ' dias')}</td>
       </tr>`;
     }).join('')}</tbody></table></div>
-    ${ord.length > 600 ? `<div class="resumo-filtro">Mostrando 600 de ${ord.length}. Refine os filtros.</div>` : ''}`;
+    <div class="resumo-filtro">${resumoDuracao(ord)}${
+      ord.length > 600 ? ` · mostrando 600 de ${ord.length}` : ''}</div>`;
+}
+
+/* Quanto tempo o escritório leva para encerrar uma tratativa, do primeiro
+   contato ao desfecho. Só as encerradas entram: incluir caso vivo puxaria a
+   média para baixo por um motivo que não é velocidade, é que ainda não acabou.
+
+   Ressalva que muda o número: boa parte do histórico da planilha só trouxe uma
+   data, e essas linhas caem como "mesmo dia". Somadas, derrubam a média de ~22
+   para ~4 dias — e isso não é o escritório fechando rápido, é dado que faltou.
+   Por isso as duas contas aparecem: a média cheia, que é o que foi pedido, e a
+   média sem as linhas de data única, que é a que dá para usar. */
+function resumoDuracao(l) {
+  const d = l.map(duracao).filter(x => x !== null).sort((a, b) => a - b);
+  if (!d.length) return 'Nenhuma tratativa encerrada neste filtro.';
+  const media = a => Math.round(a.reduce((s, x) => s + x, 0) / a.length);
+  const mediana = a => {
+    const m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+  };
+  const dias = n => `${n} dia${n === 1 ? '' : 's'}`;
+  const comDoisMarcos = d.filter(x => x > 0);
+  const mesmoDia = d.length - comDoisMarcos.length;
+  return `<b>${d.length}</b> encerradas · levaram em média <b>${dias(media(d))}</b>`
+       + ` · mediana <b>${mediana(d)}</b> · mais rápida <b>${d[0]}</b>`
+       + ` · mais demorada <b>${d[d.length - 1]}</b>`
+       + (mesmoDia && comDoisMarcos.length
+          ? `<br><b>${mesmoDia}</b> encerraram no mesmo dia da 1ª tentativa — no histórico da`
+            + ` planilha isso quase sempre é uma data só, não um caso fechado no dia.`
+            + ` Sem elas a média é <b>${dias(media(comDoisMarcos))}</b> e a mediana`
+            + ` <b>${mediana(comDoisMarcos)}</b>.`
+          : '');
 }
 
 
@@ -560,8 +619,8 @@ function telaFinanceiro(l) {
     <div class="cx" style="margin-bottom:14px">
       <h3>De que é feito o dinheiro</h3>
       <p class="sub">O acordo dividido por natureza da verba. <b>DM</b> é o que vai para o
-         cliente, <b>HS</b> é o honorário do escritório — e <b>DM+HS</b> é o acordo que foi
-         fechado sem separar as duas coisas, que é o que impede a conta exata.</p>
+         cliente e <b>HS</b> é o honorário do escritório. O que aparecer em cinza são
+         verbas do histórico que saíram de uso.</p>
       ${porVerba.length ? `<table class="tb">
         <tr><th>Verba</th><th class="n">Acordos</th><th class="n">Total</th>
             <th class="n">Recebido</th><th class="n">A receber</th></tr>
@@ -981,6 +1040,10 @@ function operadorDaVez() {
 }
 
 function abreForm(t) {
+  // Recado da tratativa anterior não vale para esta. Sem isto, sair do aviso de
+  // processo repetido para a tratativa que existe deixava o erro na tela, e ele
+  // passava a acusar de duplicada justamente a original.
+  if ($('recado')) $('recado').innerHTML = '';
   rascunho = t ? { ...t } : vazio();
   if (!rascunho.id && !rascunho.operador) rascunho.operador = operadorDaVez();
   // Tratativa nova ganha a chave aqui, antes de qualquer digitação: assim ela
@@ -1066,6 +1129,7 @@ function etapaIdentificacao() {
       ${campo('Produto / Tese', escolha('f-produto', PRODUTOS, r.produto, '—'))}
       ${campo('Nº do processo *', entrada('f-processo', 'text', r.processo))}
     </div>
+    <div id="aviso-duplicado"></div>
     ${campo('Autor (cliente)', entrada('f-autor', 'text', r.autor))}
     <div class="dupla">
       ${campo('Réu *', escolha('f-reu', comAtual(REUS.map(x => x.nome), r.reu), r.reu, 'selecione'))}
@@ -1151,10 +1215,15 @@ function blocoVerbas(v, valorAcordo) {
   const total = soma(v, x => x.valor_total);
   const falta = Math.round((valorAcordo - total) * 100) / 100;
   const fechado = rascunho.status === FECHADO;
-  const ops = CFG_VERBA.length ? CFG_VERBA
-    : [{ id: 'DM', nome: 'Danos morais' }, { id: 'HS', nome: 'Honorários' },
-       { id: 'DM+HS', nome: 'DM + HS (não discriminado)' },
-       { id: 'TRABALHISTA', nome: 'Trabalhista' }, { id: 'OUTROS', nome: 'Outros' }];
+  /* Só as verbas em uso. Uma que saiu de linha continua aparecendo onde já foi
+     escolhida — senão a linha antiga trocaria de verba sozinha ao ser aberta. */
+  const emUso = new Set(v.map(x => x.verba));
+  const ops = (CFG_VERBA.length ? CFG_VERBA
+    : [{ id: 'DM', nome: 'Danos morais', ativo: true },
+       { id: 'HS', nome: 'Honorários', ativo: true },
+       { id: 'TRABALHISTA', nome: 'Trabalhista', ativo: true },
+       { id: 'OUTROS', nome: 'Outros', ativo: true }])
+    .filter(o => o.ativo !== false || emUso.has(o.id));
 
   return `<div class="bloco" id="bloco-verbas">
     <h4>Discriminação dos valores${v.length ? ` — ${v.length}` : ''}
@@ -1177,19 +1246,12 @@ function blocoVerbas(v, valorAcordo) {
 
     <div class="acoes-verba">
       <button type="button" class="bt" id="vb-add">+ Adicionar verba</button>
-      ${!v.length && valorAcordo ? `<button type="button" class="bt" id="vb-tudo">
-        Tudo em uma verba (${brl2(valorAcordo)})</button>` : ''}
     </div>
 
     ${v.length && falta ? `<div class="nota" style="margin:12px 0 0">
       ${falta > 0 ? `Faltam <b>${brl2(falta)}</b> para fechar com o valor do acordo.`
                   : `A discriminação passa <b>${brl2(-falta)}</b> do valor do acordo.`}
       A soma das verbas tem que dar exatamente o valor do acordo.</div>` : ''}
-    ${!v.length ? `<div class="dica">${fechado
-      ? 'Acordo fechado precisa da discriminação. Se o acordo foi fechado sem separar '
-        + 'as verbas, escolha <b>DM + HS (não discriminado)</b> — é uma decisão registrada, '
-        + 'não um campo em branco.'
-      : 'Preencha quando o acordo fechar.'}</div>` : ''}
   </div>`;
 }
 
@@ -1403,6 +1465,8 @@ function ligaForm() {
   ['f-canal', 'f-reu', 'f-escritorio'].forEach(id => {
     const el = $(id); if (el) el.onchange = pintaContatos;
   });
+  const proc = $('f-processo');
+  if (proc) { proc.oninput = avisaDuplicado; proc.onchange = avisaDuplicado; avisaDuplicado(); }
   const st2 = $('f2-status');
   if (st2) st2.onchange = () => { coleta(); pintaForm(); };
   const fp = $('f3-forma');
@@ -1490,12 +1554,29 @@ function ligaVerbas() {
              valor_total: falta > 0 ? falta : 0 });
     rascunho.verbas = l; coleta(); pintaForm();
   };
-  const tudo = $('vb-tudo');
-  if (tudo) tudo.onclick = () => {
-    rascunho.verbas = [{ verba: 'DM+HS', detalhe: '(NÃO DISCRIMINADO)',
-                         valor_total: +rascunho.valor || 0 }];
-    coleta(); pintaForm();
-  };
+}
+
+/* Um processo, uma tratativa. Enquanto a pessoa digita, o sistema já mostra o
+   lançamento que existe com um botão para abrir — é mais útil avisar na hora
+   do que deixar preencher a tela inteira para recusar no fim. A comparação é
+   só por dígito: 5001234-56.2026.8.26.0100 e 500123456202682601 00 são o
+   mesmo processo, e foi exatamente assim que nasceram os duplicados antigos. */
+function avisaDuplicado() {
+  const cx = $('aviso-duplicado');
+  if (!cx) return null;
+  const el = $('f-processo');
+  const t = jaExiste(el ? el.value : rascunho.processo, rascunho.id);
+  if (!t) { cx.innerHTML = ''; return null; }
+  const f = fase(t.status);
+  cx.innerHTML = `<div class="ja-existe">
+    <div class="tit">Este processo já está no sistema</div>
+    <div class="dado"><span class="marcador"><i style="background:${f.cor}"></i>${
+      esc(f.nome)}</span> · ${esc(t.autor || 'sem autor')} × ${esc(t.reu || '—')}
+      · ${esc(t.operador || 'sem operador')} · 1ª tentativa ${dtb(t.data)}</div>
+    <button type="button" class="bt" id="abrir-existente">Abrir esta tratativa</button>
+  </div>`;
+  $('abrir-existente').onclick = () => { esqueceRascunho(); abreForm(t); };
+  return t;
 }
 
 function validaIdentificacao() {
@@ -1505,6 +1586,15 @@ function validaIdentificacao() {
   if (!rascunho.reu)      faltando.push('réu');
   if (faltando.length) {
     alerta('Falta preencher: ' + faltando.join(', ') + '.', 'erro');
+    return false;
+  }
+  const igual = jaExiste(rascunho.processo, rascunho.id);
+  if (igual) {
+    etapa = 1; pintaForm();
+    // alerta() já escapa o texto: escapar aqui de novo viraria "&amp;" na tela.
+    alerta(`O processo ${igual.processo} já tem tratativa no sistema (${
+      igual.autor || 'sem autor'} × ${igual.reu || '—'}). Abra a que existe `
+      + 'e edite ali — duplicar o mesmo processo não é permitido.', 'erro');
     return false;
   }
   return true;
@@ -1523,7 +1613,7 @@ function validaDiscriminacao() {
   if (!v.length) {
     etapa = 3;
     alerta('Acordo fechado precisa da discriminação dos valores. Abra o Faturamento '
-         + 'e separe as verbas — ou marque tudo como "DM + HS (não discriminado)".', 'erro');
+         + 'e separe as verbas.', 'erro');
     pintaForm();
     return false;
   }

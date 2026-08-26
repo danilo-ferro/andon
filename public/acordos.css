@@ -169,6 +169,24 @@
 .verbas-tb .rm:hover{color:var(--bad);background:var(--pr-bg)}
 .acoes-verba{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
+/* ---- Alguém mexeu antes ----
+   Comparação lado a lado do que está no sistema e do que foi digitado. */
+.conflito-tb{width:100%;border-collapse:collapse;margin:11px 0 4px;font-size:12px}
+.conflito-tb th{text-align:left;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--txt-3);font-family:'JetBrains Mono',monospace;font-weight:600;padding:0 10px 5px 0}
+.conflito-tb td{padding:5px 10px 5px 0;border-top:1px solid var(--line-fraca);
+  vertical-align:top;color:var(--txt-2)}
+.conflito-tb td:first-child{color:var(--txt-3);white-space:nowrap}
+.acoes-conflito{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+
+/* ---- Versão nova publicada ----
+   Nunca recarrega sozinho: quem está digitando perderia o que digitou. */
+.nova-versao{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:60;
+  display:flex;gap:12px;align-items:center;padding:11px 14px;border-radius:11px;
+  border:1px solid var(--line-2);background:var(--cx-1);box-shadow:var(--elev-carta);
+  font-size:12.5px;color:var(--txt-2);max-width:calc(100% - 32px)}
+.nova-versao .bt{font-size:12px;padding:6px 12px;white-space:nowrap}
+
 /* ---- Trava de processo repetido ----
    Aparece logo abaixo do campo do processo, enquanto a pessoa digita. */
 .ja-existe{border:1px solid var(--at-bd);background:var(--at-bg);border-radius:10px;

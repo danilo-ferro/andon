@@ -233,6 +233,20 @@ ordenação é pelo valor, não pelo que está escrito — senão "R$ 1.000" vir
 de "R$ 900", "20 dias" antes de "9 dias", e o status sairia em ordem alfabética
 em vez da ordem do funil.
 
+## A esteira ocupa a janela e rola por dentro
+
+A altura das colunas era uma conta fixa — `100vh - 290px` — que supunha onde a
+esteira começava. Errava: a barra de filtros muda de altura conforme a largura
+da tela, e o total da esteira entrou depois. Media-se coluna passando **88px por
+baixo da janela**, com a barra de rolagem horizontal fora do alcance, e descer a
+página movia tudo de lugar.
+
+Agora a altura é medida de verdade, quando a esteira é desenhada e a cada
+redimensionamento: ela recebe o que sobra da janela e devolve o que ainda
+transbordar. Com isso a página **não rola** na esteira — o que rola é o miolo de
+cada coluna, a barra horizontal fica sempre visível, e não há mais nada para
+sair do lugar quando se desce a tela.
+
 ## Entre acertar o acordo e fechar o acordo
 
 Dizer "sim" não é fechar. Depois do acerto vem a minuta, confeccionada pela
@@ -275,31 +289,42 @@ um espera. É o pedaço do caminho que é do financeiro, e agora ele é visível
 A sessão não expira mais por inatividade — foi pedido assim, e está certo. O
 efeito colateral não estava previsto: a aba fica aberta dias a fio, e o que
 aparece nela é a **fotografia do banco no instante em que ela abriu**. Duas
-pessoas no mesmo caso viam bases diferentes, e a que salvasse depois gravava os
-valores velhos por cima dos novos — sem erro nenhum na tela.
+pessoas no mesmo caso viam bases diferentes.
 
-Foi assim que uma tratativa atualizada às 21h54 continuava aparecendo com o
-operador antigo no dia seguinte, na aba de quem não tinha recarregado.
+**A tela busca o que mudou a cada 30 segundos**, e também quando a aba volta ao
+foco — sair para o WhatsApp e voltar é o gesto mais comum da equipe. Busca só o
+que mudou: `updated_at` maior que o maior que ela já viu, o que torna a chamada
+pequena o bastante para caber nesse intervalo. O botão **Atualizar** no topo faz
+o mesmo na hora e diz o que encontrou; "nada mudou" é uma resposta tão útil
+quanto "3 registros mudaram".
 
-Três coisas mudaram:
-
-**A tela busca o que mudou.** Só o que mudou: `updated_at` maior que o maior
-que ela já viu. É uma chamada pequena, e roda quando a aba volta ao foco — o
-gesto mais comum da equipe, sair para o WhatsApp e voltar — e a cada minuto
-enquanto a aba está visível.
-
-**Gravar por cima de dado velho não passa em silêncio.** A gravação leva junto
-a versão que estava na tela quando a tratativa foi aberta (`updated_at=eq.…`).
-Se alguém mexeu nesse meio tempo, o banco não encontra a linha e **nada é
-gravado**. A tela então mostra, lado a lado, o que está no sistema e o que foi
-digitado, e oferece as duas saídas: usar o que está no sistema, ou gravar o seu
-por cima. A decisão é de quem digitou — o que o sistema não faz mais é decidir
-sozinho e apagar o trabalho de alguém.
+Quem salva por último manda. Não há pergunta, não há confirmação: o que protege
+o trabalho de todo mundo não é travar a gravação, é a tela não estar velha.
 
 **Versão nova avisa.** Não há build, então `acordos.js` de hoje tem o mesmo nome
-do de ontem e o navegador serve a cópia guardada. Agora os arquivos revalidam a
-cada pedido (304 quando nada mudou, que é barato) e a tela avisa quando saiu
-versão nova. Nunca recarrega sozinha: quem está digitando perderia o que digitou.
+do de ontem e o navegador serve a cópia guardada. Os arquivos revalidam a cada
+pedido (304 quando nada mudou, que é barato) e a tela avisa quando saiu versão
+nova. Nunca recarrega sozinha: quem está digitando perderia o que digitou.
+
+## "Salva" só com a linha na mão
+
+Uma tratativa apareceu como salva e sumiu. Não foi o banco: o registro nunca
+existiu, e não havia erro nenhum do lado do Postgres.
+
+Era o aviso de sucesso. Ele ficava no fim da função de salvar, sem ninguém ter
+conferido se a resposta trouxe a linha gravada. Resposta sem linha — por
+qualquer motivo — passava por gravação boa: a tela dizia "Tratativa salva.",
+apagava o rascunho de resgate, e não havia tratativa nenhuma.
+
+Agora **sucesso é uma linha, não a ausência de erro**. Quando a resposta não
+traz a linha, o sistema pergunta ao servidor se ela existe: pela chave própria
+que foi junto na gravação, quando é tratativa nova; pelo id, quando é edição. Se
+existe, salvou mesmo — a resposta é que se perdeu, e isso é sucesso. Se não
+existe, é erro, o rascunho fica guardado e a tela diz isso.
+
+Essa conferência antes dependia de o texto do erro conter certas palavras, e
+bastou traduzir uma mensagem para português para ela parar de acontecer. Agora
+não depende de texto nenhum.
 
 ## O tempo de uma tratativa é uma data só
 

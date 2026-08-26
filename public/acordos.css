@@ -19,11 +19,25 @@
   font-family:'JetBrains Mono',monospace}
 .resumo-filtro b{color:var(--txt-2)}
 
-/* ---- Kanban ---- */
-.esteira-cols{display:flex;gap:13px;overflow-x:auto;padding:4px 2px 18px;align-items:flex-start}
+/* ---- Kanban ----
+   A esteira ocupa o que sobra da janela e rola por dentro; a página não rola
+   por baixo dela. Antes a altura das colunas era uma conta fixa
+   (`100vh - 290px`) que supunha onde a esteira começava — e errava, porque a
+   barra de filtros muda de altura conforme a largura da tela e o total da
+   esteira entrou depois. Sobrava coluna passando 88px por baixo da janela, a
+   barra de rolagem horizontal ficava fora do alcance, e descer a página movia
+   tudo de lugar. `--alt-esteira` é medido de verdade, em telaKanban(). */
+/* As outras telas rolam e por isso têm 80px de folga no rodapé. A esteira não
+   rola: ela ocupa a janela e rola por dentro, então essa folga viraria só
+   espaço morto embaixo das colunas. */
+#t-kanban.tela{padding-bottom:16px}
+.esteira-cols{display:flex;gap:13px;align-items:stretch;
+  overflow:auto;padding:4px 2px 6px;
+  height:var(--alt-esteira,calc(100vh - 300px));min-height:280px;
+  overscroll-behavior:contain}
 .col-k{width:330px;flex-shrink:0;border-radius:14px;border:1px solid var(--line);
   background:linear-gradient(170deg,var(--cx-1),var(--cx-2));
-  display:flex;flex-direction:column;max-height:calc(100vh - 290px)}
+  display:flex;flex-direction:column;max-height:100%}
 .col-k .topo-col{padding:13px 14px;border-bottom:1px solid var(--line);position:sticky;top:0;
   background:var(--col-topo-bg);backdrop-filter:blur(10px);border-radius:14px 14px 0 0;z-index:1}
 .col-k .l1{display:flex;align-items:center;gap:8px}
@@ -149,7 +163,6 @@
 .parcelas-tb td{padding:6px 0;font-size:12px;border-bottom:1px solid var(--line-fraca)}
 .parcelas-tb td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600}
 
-
 /* Periodo: o intervalo personalizado so aparece quando e escolhido, para a
    barra nao carregar dois campos de data que quase nunca sao usados. */
 .filtro.periodo{min-width:190px}
@@ -169,15 +182,9 @@
 .verbas-tb .rm:hover{color:var(--bad);background:var(--pr-bg)}
 .acoes-verba{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
-/* ---- Alguém mexeu antes ----
-   Comparação lado a lado do que está no sistema e do que foi digitado. */
-.conflito-tb{width:100%;border-collapse:collapse;margin:11px 0 4px;font-size:12px}
-.conflito-tb th{text-align:left;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--txt-3);font-family:'JetBrains Mono',monospace;font-weight:600;padding:0 10px 5px 0}
-.conflito-tb td{padding:5px 10px 5px 0;border-top:1px solid var(--line-fraca);
-  vertical-align:top;color:var(--txt-2)}
-.conflito-tb td:first-child{color:var(--txt-3);white-space:nowrap}
+/* Saidas oferecidas quando a gravacao nao passou. */
 .acoes-conflito{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+
 
 /* ---- Versão nova publicada ----
    Nunca recarrega sozinho: quem está digitando perderia o que digitou. */

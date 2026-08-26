@@ -50,6 +50,7 @@ async function api(caminho, opcoes, jaRenovou) {
     // O Postgres devolve um JSON tecnico. Sozinho, ele nao diz a ninguem o
     // que fazer — traduzimos os casos que a equipe encontra de verdade.
     let msg = bruto.slice(0, 240) || `erro ${r.status}`;
+    let repetido = false;
     try {
       const d = JSON.parse(bruto);
       if (/invalid input syntax for type date/i.test(d.message || ''))
@@ -58,14 +59,18 @@ async function api(caminho, opcoes, jaRenovou) {
         msg = 'Algum valor não é um número válido. Confira o valor e as parcelas.';
       else if (/violates check constraint/i.test(d.message || ''))
         msg = 'Um dos campos ficou com opção inválida. Reabra a tratativa e escolha de novo.';
-      // O índice único é a trava final: a tela também barra, mas alguém pode
-      // ter criado o mesmo processo em outra aba enquanto esta estava aberta.
-      else if (/tratativa_processo_uk/i.test((d.message || '') + (d.details || '')))
-        msg = 'Este processo já tem tratativa no sistema. Recarregue a tela e abra a que '
-            + 'existe — um processo tem uma tratativa só.';
+      // O índice único é a trava final: a tela também barra, mas quem está com
+      // a aba aberta há horas não tem na lista a tratativa criada hoje por outra
+      // pessoa — e descobrir isso só na hora de salvar, sem saída, é cruel.
+      else if (/tratativa_processo_uk/i.test((d.message || '') + (d.details || ''))) {
+        msg = 'Este processo já tem tratativa no sistema — um processo tem uma tratativa só.';
+        repetido = true;
+      }
       else if (d.message) msg = d.message;
     } catch { /* nao era JSON: fica o texto cru mesmo */ }
-    throw new Error(msg);
+    const erro = new Error(msg);
+    erro.processoRepetido = repetido;
+    throw erro;
   }
   return r.status === 204 ? null : r.json();
 }
@@ -84,7 +89,14 @@ async function lerTudo(t, campos) {
   return out;
 }
 const criar = (t, o)    => api(t, { method: 'POST', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
-const mudar = (t, id, o) => api(`${t}?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
+/* `versao` é o updated_at que estava na linha quando ela foi aberta. Indo junto
+   como filtro, a gravação só acontece se ninguém tiver mexido no registro nesse
+   meio tempo — se mexeu, o PATCH não encontra linha e devolve lista vazia, que
+   é o sinal de conflito. Sem isso, quem abriu a tratativa de manhã e salvou à
+   tarde apagava por cima tudo o que outra pessoa tinha feito no dia. */
+const mudar = (t, id, o, versao) =>
+  api(`${t}?id=eq.${id}` + (versao ? `&updated_at=eq.${encodeURIComponent(versao)}` : ''),
+      { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
 
 /* ---------- estado ---------- */
 let TRAT = [], PESSOAS = [], REUS = [], ESCRS = [], CONTATOS = [], FASES = [];
@@ -102,6 +114,20 @@ const NOME_MES = ['janeiro','fevereiro','março','abril','maio','junho',
 
 /* Traduz a escolha de periodo em um intervalo de datas. Vazio = tudo, que e
    o estado inicial: a tela abre mostrando o escritorio inteiro. */
+/* Uma tratativa tem UMA data no tempo, não três.
+
+   Antes valia qualquer um dos marcos — abertura, última atualização ou
+   protocolo — e o resultado era o mesmo processo aparecendo em julho pela
+   1ª tentativa e em agosto pela atualização. Somado, contava duas vezes.
+
+   A regra agora é a do escritório: a tratativa vive na data da última
+   atualização, e o acordo fechado vive na data do protocolo, que é o marco
+   financeiro. Acordo fechado sem protocolo lançado cai na atualização, senão
+   ele sumiria de todos os períodos. */
+const dataDoPeriodo = t =>
+  (t.status === FECHADO && t.data_protocolo) ? t.data_protocolo
+                                             : (t.data_atualizacao || t.data || null);
+
 function intervalo() {
   if (F.periodo === 'custom') return [F.de, F.ate];
   if (/^\d{4}-\d{2}$/.test(F.periodo)) {
@@ -113,10 +139,10 @@ function intervalo() {
 
 /* Meses que existem de fato nos dados, do mais recente para o mais antigo. */
 function mesesDisponiveis() {
+  // Os meses oferecidos são os mesmos pelos quais o filtro recorta. Listar um
+  // mês por outro marco ofereceria período que devolve lista vazia.
   const s = new Set();
-  TRAT.forEach(t => {
-    [t.data, t.data_atualizacao, t.data_protocolo].forEach(d => { if (d) s.add(d.slice(0, 7)); });
-  });
+  TRAT.forEach(t => { const d = dataDoPeriodo(t); if (d) s.add(d.slice(0, 7)); });
   return [...s].sort().reverse().slice(0, 36);
 }
 
@@ -259,11 +285,8 @@ function filtradas() {
   return TRAT.filter(t => {
     const [de, ate] = intervalo();
     if (de || ate) {
-      // Uma tratativa entra no periodo se qualquer marco dela caiu ali:
-      // abertura, ultima atualizacao ou protocolo. Filtrar so pela abertura
-      // esconderia acordo antigo que fechou e faturou dentro do mes.
-      const marcos = [t.data, t.data_atualizacao, t.data_protocolo].filter(Boolean);
-      if (!marcos.some(d => (!de || d >= de) && (!ate || d <= ate))) return false;
+      const d = dataDoPeriodo(t);
+      if (!d || (de && d < de) || (ate && d > ate)) return false;
     }
     if (F.advogado && t.advogado !== F.advogado) return false;
     if (F.operador && t.operador !== F.operador) return false;
@@ -888,6 +911,131 @@ const anosDisponiveis = () => {
 };
 
 /* Uma definicao so: a mesma funcao do banco que a view usa sem periodo. */
+/* ==================================================================
+   A TELA NÃO PODE ENVELHECER SOZINHA
+
+   A sessão não expira mais por inatividade — foi pedido assim, e está certo.
+   O efeito colateral não estava previsto: a aba fica aberta dias a fio, e o
+   que aparece nela é a fotografia do banco no instante em que ela abriu.
+   Duas pessoas no mesmo caso viam bases diferentes, e a que salvasse depois
+   gravava os valores velhos por cima dos novos, sem erro nenhum na tela.
+
+   A correção tem dois lados. Aqui é o primeiro: buscar de tempos em tempos
+   só o que mudou — `updated_at` maior que o maior que já vimos. É uma
+   chamada pequena, roda quando a aba volta ao foco e a cada minuto enquanto
+   ela está visível. O segundo lado é a trava de gravação em `mudar()`.
+   ================================================================== */
+let ULTIMA_SINC = null;      // maior updated_at que esta tela já viu
+let sincronizando = null;
+const A_CADA = 60000;
+
+const maiorUpdated = (l, atual) => (l || []).reduce(
+  (m, x) => (x.updated_at && (!m || x.updated_at > m)) ? x.updated_at : m, atual);
+
+function marcaSincronia() {
+  ULTIMA_SINC = maiorUpdated(TRAT, maiorUpdated(RECEB, maiorUpdated(VERBAS, null)));
+}
+
+function funde(lista, novas) {
+  const mudou = [];
+  (novas || []).forEach(n => {
+    const i = lista.findIndex(x => x.id === n.id);
+    if (i >= 0) lista[i] = n; else lista.push(n);
+    mudou.push(n.id);
+  });
+  return mudou;
+}
+
+/* Devolve quantas linhas mudaram. Nunca lança: sincronizar é conveniência, e
+   uma falha de rede aqui não pode virar erro vermelho por cima do trabalho de
+   ninguém — na próxima passada tenta de novo. */
+async function sincroniza() {
+  if (sincronizando) return sincronizando;
+  if (!ULTIMA_SINC || !logado()) return 0;
+  sincronizando = (async () => {
+    const desde = encodeURIComponent(ULTIMA_SINC);
+    const [t, rc] = await Promise.all([
+      ler('tratativa',          `select=*&updated_at=gt.${desde}&order=updated_at.asc&limit=500`),
+      ler('acordo_recebimento', `select=*&updated_at=gt.${desde}&order=updated_at.asc&limit=500`)
+    ]);
+    const ids = funde(TRAT, t);
+    funde(RECEB, rc);
+
+    /* Verba e recebimento são apagados e regravados a cada salvamento, então
+       o que sumiu não volta por `updated_at` — para as tratativas que mudaram,
+       a lista é relida inteira. Se mudou muita coisa, sai mais barato (e mais
+       seguro) recarregar tudo. */
+    if (ids.length > 60) { await carrega(); marcaSincronia(); desenha(); return ids.length; }
+    if (ids.length) {
+      const dentro = new Set(ids);
+      const lista = ids.join(',');
+      const [vb, rec] = await Promise.all([
+        ler('acordo_verba',       `select=*&tratativa_id=in.(${lista})`),
+        ler('acordo_recebimento', `select=*&tratativa_id=in.(${lista})`)
+      ]);
+      VERBAS = VERBAS.filter(v => !dentro.has(v.tratativa_id)).concat(vb || []);
+      RECEB  = RECEB .filter(r => !dentro.has(r.tratativa_id)).concat(rec || []);
+    }
+
+    const total = ids.length + (rc || []).length;
+    if (total) {
+      marcaSincronia();
+      desenha();
+      avisaSeMudouAberta(t);
+    }
+    return total;
+  })().catch(() => 0).finally(() => { sincronizando = null; });
+  return sincronizando;
+}
+
+/* Se a tratativa que está aberta na gaveta mudou no banco, quem está com ela
+   aberta precisa saber ANTES de salvar — e o que está digitado não pode ser
+   substituído sem permissão. Por isso só avisa; a decisão é de quem digitou. */
+function avisaSeMudouAberta(mudadas) {
+  if (!rascunho || !rascunho.id || !$('gav').classList.contains('on')) return;
+  const nova = (mudadas || []).find(x => x.id === rascunho.id);
+  if (!nova || nova.updated_at === rascunho.updated_at) return;
+  alerta('Enquanto você tem esta tratativa aberta, outra pessoa a atualizou no '
+       + 'sistema. O que você digitou continua aqui. Ao salvar, o sistema avisa '
+       + 'o que mudou antes de gravar por cima.', 'erro');
+}
+
+/* Volta ao foco: sincroniza na hora. É o gesto mais comum da equipe — sair
+   para o WhatsApp, tratar o caso, voltar para o sistema. */
+function ligaSincronia() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { sincroniza(); vejoSeMudouAVersao(); }
+  });
+  window.addEventListener('focus', () => sincroniza());
+  window.addEventListener('online', () => sincroniza());
+  setInterval(() => { if (document.visibilityState === 'visible') sincroniza(); }, A_CADA);
+}
+
+/* ---------- a versão do próprio sistema ----------
+   Mesma raiz do problema anterior: a aba aberta há dias também está rodando o
+   JavaScript daquele dia. Nenhuma correção publicada chega a quem não recarrega.
+   Aqui a tela pergunta ao servidor se o arquivo mudou e, se mudou, oferece a
+   atualização — sem recarregar por conta própria, que jogaria fora o que
+   estivesse sendo digitado. */
+let VERSAO_TELA = null;
+async function assinaturaDaTela() {
+  try {
+    const r = await fetch('/acordos.js', { method: 'HEAD', cache: 'no-store' });
+    return r.headers.get('etag') || r.headers.get('last-modified') || null;
+  } catch { return null; }
+}
+async function vejoSeMudouAVersao() {
+  const agora = await assinaturaDaTela();
+  if (!agora || !VERSAO_TELA || agora === VERSAO_TELA || $('nova-versao')) return;
+  const b = document.createElement('div');
+  b.id = 'nova-versao';
+  b.className = 'nova-versao';
+  b.innerHTML = `<span>Saiu uma versão nova do sistema.</span>
+    <button type="button" class="bt p" id="recarregar-agora">Atualizar agora</button>`;
+  document.body.appendChild(b);
+  $('recarregar-agora').onclick = () => location.reload();
+}
+
 async function carregaRanking() {
   const [de, ate] = intervaloRank();
   RANKING = await api('rpc/ranking_operador', {
@@ -1633,6 +1781,101 @@ function coletaAcordo() {
   if ($('bloco-verbas')) r.verbas = leVerbasDaTela();
 }
 
+/* ---------- alguém mexeu antes ----------
+   Duas pessoas na mesma tratativa é rotina aqui: a operadora fecha o acordo e
+   o financeiro protocola. O que não pode é a segunda gravação apagar a
+   primeira sem ninguém ver. Quando isso acontece, nada é gravado, o sistema
+   mostra exatamente o que mudou e quem está digitando decide. */
+const ROTULO_CAMPO = {
+  status: 'Status', operador: 'Operador', advogado: 'Advogado', valor: 'Valor',
+  data_atualizacao: 'Última atualização', data_protocolo: 'Protocolada em',
+  data_minuta_assinada: 'Minuta assinada em', previsao: 'Previsão de recebimento',
+  observacoes: 'Observações', reu: 'Réu', autor: 'Autor', processo: 'Processo',
+  fase: 'Fase processual', estado: 'UF', canal: 'Forma de contato', tipo: 'Tipo',
+  produto: 'Produto', forma_pagamento: 'Forma de pagamento', prazo_dias: 'Prazo (dias)',
+  tipo_prazo: 'Tipo de prazo', qtd_parcelas: 'Parcelas',
+  escritorio_adverso: 'Escritório', recebido: 'Recebido', data_recebimento: 'Data do recebimento'
+};
+const mostraValor = (campo, v) => {
+  if (v === null || v === undefined || v === '') return '—';
+  if (campo === 'status') return fase(v).nome;
+  if (campo === 'valor') return brl2(v);
+  if (/^data|previsao/.test(campo)) return dtb(v);
+  if (typeof v === 'boolean') return v ? 'sim' : 'não';
+  return String(v);
+};
+
+/* O banco recusou por processo repetido. Busca a tratativa que existe — ela
+   pode ter sido criada hoje por outra pessoa e nem estar na lista desta aba —
+   e põe na tela com um clique para abrir. */
+async function ofereceAExistente(processo) {
+  const k = chaveProcesso(processo);
+  const achadas = await ler('tratativa',
+    `select=*&processo=ilike.*${encodeURIComponent(k.slice(0, 7))}*&limit=40`).catch(() => []);
+  const t = (achadas || []).find(x => chaveProcesso(x.processo) === k)
+         || jaExiste(processo, rascunho.id);
+  if (t) {
+    const i = TRAT.findIndex(x => x.id === t.id);
+    if (i >= 0) TRAT[i] = t; else TRAT.push(t);
+    marcaSincronia();
+  }
+  $('recado').innerHTML = `<div class="nota">
+    <b>Nada foi gravado.</b> O processo ${esc(processo)} já tem tratativa no sistema —
+    um processo tem uma tratativa só.
+    ${t ? `<div class="dado" style="margin-top:8px">
+        <span class="marcador"><i style="background:${fase(t.status).cor}"></i>${esc(fase(t.status).nome)}</span>
+        · ${esc(t.autor || 'sem autor')} × ${esc(t.reu || '—')}
+        · ${esc(t.operador || 'sem operador')}</div>
+      <div class="acoes-conflito">
+        <button type="button" class="bt p" id="cf-abrir">Abrir a que existe</button>
+      </div>`
+    : ' Recarregue a tela para encontrá-la.'}
+  </div>`;
+  if (t) $('cf-abrir').onclick = () => { esqueceRascunho(); abreForm(t); desenha(); };
+}
+
+async function conflito(r, meus) {
+  const atual = (await ler('tratativa', `select=*&id=eq.${r.id}&limit=1`).catch(() => null)) || [];
+  const nova = atual[0];
+  if (!nova) {
+    alerta('Não consegui gravar: esta tratativa não está mais no sistema. '
+         + 'Recarregue a tela antes de continuar.', 'erro');
+    return;
+  }
+  // O que a outra pessoa mudou, e o que eu ia gravar por cima.
+  const linhas = Object.keys(meus).filter(c => {
+    const antes = r[c] ?? null, agora = nova[c] ?? null;
+    return String(antes ?? '') !== String(agora ?? '');
+  });
+
+  const i = TRAT.findIndex(t => t.id === nova.id);
+  if (i >= 0) TRAT[i] = nova; else TRAT.push(nova);
+  marcaSincronia();
+
+  $('recado').innerHTML = `<div class="nota">
+    <b>Nada foi gravado.</b> Outra pessoa atualizou esta tratativa enquanto você
+    a tinha aberta${nova.operador ? ` — ela está com <b>${esc(nova.operador)}</b>` : ''}.
+    Para não apagar o trabalho dela, o sistema parou aqui.
+    ${linhas.length ? `<table class="conflito-tb">
+      <tr><th></th><th>no sistema agora</th><th>o que você digitou</th></tr>
+      ${linhas.map(c => `<tr>
+        <td>${esc(ROTULO_CAMPO[c] || c)}</td>
+        <td><b>${esc(mostraValor(c, nova[c]))}</b></td>
+        <td>${esc(mostraValor(c, meus[c]))}</td>
+      </tr>`).join('')}</table>` : ''}
+    <div class="acoes-conflito">
+      <button type="button" class="bt" id="cf-recarregar">Usar o que está no sistema</button>
+      <button type="button" class="bt p" id="cf-forcar">Gravar o meu por cima</button>
+    </div>
+  </div>`;
+  $('cf-recarregar').onclick = () => { esqueceRascunho(); abreForm(nova); desenha(); };
+  $('cf-forcar').onclick = () => {
+    rascunho.forcar = true;
+    rascunho.updated_at = nova.updated_at;
+    protege(salvar);
+  };
+}
+
 /* Enquanto a tratativa nova não existe no banco, cada passada pelo formulário
    deixa uma cópia neste navegador. Fechar sem querer, F5, queda de energia:
    o trabalho volta. Some quando a tratativa é salva ou quando a pessoa
@@ -1880,9 +2123,15 @@ async function salvar() {
     dados.chave_cliente = r.chave_cliente || (r.chave_cliente = ANDON_REDE.chaveNova());
   }
 
+  /* A versão que estava na tela quando esta tratativa foi aberta. Vai junto na
+     gravação para que ninguém escreva por cima do trabalho de outra pessoa sem
+     saber. `forcar` só existe depois de o sistema ter mostrado o que mudou e a
+     pessoa ter escolhido gravar mesmo assim. */
+  const versao = (r.id && !r.forcar) ? r.updated_at : null;
+
   let salvo;
   try {
-    salvo = r.id ? await mudar('tratativa', r.id, dados) : await criar('tratativa', dados);
+    salvo = r.id ? await mudar('tratativa', r.id, dados, versao) : await criar('tratativa', dados);
   } catch (e) {
     // Duplicata da chave: a primeira tentativa tinha chegado. Não é erro —
     // é a prova de que salvou.
@@ -1891,6 +2140,9 @@ async function salvar() {
         `select=*&chave_cliente=eq.${encodeURIComponent(dados.chave_cliente)}&limit=1`)
         .catch(() => null);
     }
+    // Processo que já existe: em vez de um beco sem saída, o registro que
+    // existe aparece na hora, com um botão para abrir.
+    if (e.processoRepetido) { await ofereceAExistente(dados.processo); return; }
     if (!salvo || !salvo.length) {
       guardaRascunho(dados);
       // Diante de um erro de gravação, a primeira dúvida é "perdi o que
@@ -1900,6 +2152,11 @@ async function salvar() {
       throw e;
     }
   }
+
+  /* PATCH que não encontrou linha: o registro mudou desde que foi aberto.
+     Nada foi gravado — e isso é a correção, não a falha. Antes esta gravação
+     passava e apagava em silêncio o que a outra pessoa tinha feito. */
+  if (versao && (!salvo || !salvo.length)) return conflito(r, dados);
 
   const gravada = (salvo && salvo[0]) || null;
   const id = r.id || (gravada && gravada.id);
@@ -1914,7 +2171,8 @@ async function salvar() {
     const i = TRAT.findIndex(t => t.id === gravada.id);
     if (i >= 0) TRAT[i] = gravada; else TRAT.push(gravada);
     rascunho = { ...gravada };
-    pintaForm();     // redesenha a gaveta, e com ela o espaço do recado
+    marcaSincronia();   // a nossa própria gravação já está vista
+    pintaForm();        // redesenha a gaveta, e com ela o espaço do recado
     desenha();
   }
   alerta('Tratativa salva.', 'ok');
@@ -2082,8 +2340,11 @@ async function inicia() {
   pintaSessao();
   try {
     await carrega();
+    marcaSincronia();
     desenha();
     ofereceResgate();
+    ligaSincronia();
+    assinaturaDaTela().then(v => { VERSAO_TELA = v; });
   } catch (e) {
     $('t-painel').innerHTML = `<div class="vazio">
       Não consegui carregar as tratativas.<br><br>${esc(e.message)}<br><br>

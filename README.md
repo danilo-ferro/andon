@@ -270,6 +270,49 @@ O Financeiro mede **quanto tempo passa entre a minuta assinada e o protocolo** �
 média, mediana e extremos — e lista o que está esperando, com quantos dias cada
 um espera. É o pedaço do caminho que é do financeiro, e agora ele é visível.
 
+## A tela não pode envelhecer sozinha
+
+A sessão não expira mais por inatividade — foi pedido assim, e está certo. O
+efeito colateral não estava previsto: a aba fica aberta dias a fio, e o que
+aparece nela é a **fotografia do banco no instante em que ela abriu**. Duas
+pessoas no mesmo caso viam bases diferentes, e a que salvasse depois gravava os
+valores velhos por cima dos novos — sem erro nenhum na tela.
+
+Foi assim que uma tratativa atualizada às 21h54 continuava aparecendo com o
+operador antigo no dia seguinte, na aba de quem não tinha recarregado.
+
+Três coisas mudaram:
+
+**A tela busca o que mudou.** Só o que mudou: `updated_at` maior que o maior
+que ela já viu. É uma chamada pequena, e roda quando a aba volta ao foco — o
+gesto mais comum da equipe, sair para o WhatsApp e voltar — e a cada minuto
+enquanto a aba está visível.
+
+**Gravar por cima de dado velho não passa em silêncio.** A gravação leva junto
+a versão que estava na tela quando a tratativa foi aberta (`updated_at=eq.…`).
+Se alguém mexeu nesse meio tempo, o banco não encontra a linha e **nada é
+gravado**. A tela então mostra, lado a lado, o que está no sistema e o que foi
+digitado, e oferece as duas saídas: usar o que está no sistema, ou gravar o seu
+por cima. A decisão é de quem digitou — o que o sistema não faz mais é decidir
+sozinho e apagar o trabalho de alguém.
+
+**Versão nova avisa.** Não há build, então `acordos.js` de hoje tem o mesmo nome
+do de ontem e o navegador serve a cópia guardada. Agora os arquivos revalidam a
+cada pedido (304 quando nada mudou, que é barato) e a tela avisa quando saiu
+versão nova. Nunca recarrega sozinha: quem está digitando perderia o que digitou.
+
+## O tempo de uma tratativa é uma data só
+
+Uma tratativa aparece no filtro de período por **uma** data, não por três.
+Antes valia qualquer marco — 1ª tentativa, última atualização ou protocolo — e
+o mesmo processo aparecia em julho pela abertura e em agosto pela atualização,
+contando duas vezes.
+
+A regra é a do escritório: a tratativa vive na **data da última atualização**, e
+o acordo fechado vive na **data do protocolo**, que é o marco financeiro. Acordo
+fechado sem protocolo lançado cai na atualização, senão sumiria de todos os
+períodos.
+
 ## Quando a rede falha
 
 `fetch` só rejeita quando a requisição não completou — o wi-fi caiu, o antivírus

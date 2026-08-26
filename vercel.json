@@ -9,6 +9,13 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
+    },
+    {
+      "//": "Não há build, então os arquivos têm sempre o mesmo nome: acordos.js hoje é o acordos.js de amanhã. Sem isto o navegador serve a cópia guardada e a correção publicada não chega em quem não limpa o cache. `must-revalidate` faz o navegador perguntar ao servidor toda vez — quando nada mudou a resposta é um 304 vazio, que é barato.",
+      "source": "/(.*)\\.(html|js|css)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
     }
   ]
 }

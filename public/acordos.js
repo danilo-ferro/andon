@@ -340,9 +340,11 @@ function pintaFiltros() {
       ${sel('canal', 'forma de contato', CANAIS, F.canal)}
       ${sel('parado', 'parado há', [{ v: '15', l: '+15 dias' }, { v: '30', l: '+30 dias' },
         { v: '45', l: '+45 dias' }, { v: '90', l: '+90 dias' }], F.parado, 'qualquer')}
-      <button class="bt limpar" id="limpar">Limpar</button>
     </div>
-    <div class="resumo-filtro" id="resumo"></div></div>`;
+    <div class="linha-resumo">
+      <div class="resumo-filtro" id="resumo"></div>
+      <button class="bt limpar" id="limpar">Limpar filtros</button>
+    </div></div>`;
 
   document.querySelectorAll('[data-f]').forEach(el => el.onchange = () => {
     F[el.dataset.f] = el.value; desenha();
@@ -2272,9 +2274,19 @@ async function protege(fn) {
   try { await fn(); } catch (e) { alerta(e.message || String(e), 'erro'); }
 }
 
+/* Quem está logado, em duas larguras. Em tela larga, o nome inteiro; em tela
+   apertada, só as iniciais num círculo — que ocupam 90px a menos e continuam
+   dizendo de quem é a sessão. Antes o nome simplesmente sumia abaixo de
+   1200px, e a barra ficava sem dono. */
 function pintaSessao() {
-  $('sessao').innerHTML = `<span class="quem">${esc((sessao && (sessao.nome || sessao.email)) || '')}</span>
-     <button class="bt" id="sair">Sair</button>`;
+  const nome = (sessao && (sessao.nome || sessao.email)) || '';
+  const iniciais = nome.split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(p => p[0]).join('').toUpperCase() || '?';
+  $('sessao').innerHTML = `
+    <span class="eu" title="${esc(nome)}">
+      <i class="ini">${esc(iniciais)}</i><span class="quem">${esc(nome)}</span>
+    </span>
+    <button class="bt" id="sair">Sair</button>`;
   $('sair').onclick = () => SESSAO.sair();
 }
 

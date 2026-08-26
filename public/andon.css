@@ -273,19 +273,21 @@ a{color:inherit}
    de 1366 e sobrava 19px para a direita — a pagina inteira ganhava rolagem
    horizontal e saia do lugar ao rolar. Envolver e a unica defesa que continua
    valendo quando alguem acrescentar a proxima aba. */
-.topo-in{display:flex;align-items:center;gap:14px;padding:11px 20px;max-width:2100px;
-  margin:0 auto;flex-wrap:wrap}
-.marca{display:flex;align-items:center;gap:11px;flex-shrink:0;text-decoration:none}
-.marca svg{width:36px;height:36px;border-radius:10px;box-shadow:0 0 0 1px var(--line-2)}
-.marca .n{font-family:'Sora',sans-serif;font-weight:800;font-size:19px;letter-spacing:.02em;line-height:1.05}
+.topo-in{display:flex;align-items:center;gap:12px;padding:11px 20px;max-width:2100px;
+  margin:0 auto;flex-wrap:nowrap}
+.marca{display:flex;align-items:center;gap:9px;flex-shrink:0;text-decoration:none}
+.marca svg{width:32px;height:32px;border-radius:9px;box-shadow:0 0 0 1px var(--line-2)}
+.marca .n{font-family:'Sora',sans-serif;font-weight:800;font-size:17.5px;letter-spacing:.02em;line-height:1.05}
 .marca .s{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--txt-3);margin-top:1px}
-.nav{display:flex;gap:3px;margin-left:6px;align-items:center;flex-wrap:wrap;
-  min-width:0;flex:0 1 auto}
-.nav button{padding:7px 14px;border-radius:9px;font-weight:500;color:var(--txt-2);
-  white-space:nowrap;transition:.16s;font-size:13px}
+.nav{display:flex;gap:2px;margin-left:4px;align-items:center;flex-wrap:nowrap;
+  min-width:0;flex:1 1 auto;overflow-x:auto;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav button{padding:7px 11px;border-radius:9px;font-weight:500;color:var(--txt-2);
+  white-space:nowrap;transition:.16s;font-size:12.5px;flex-shrink:0}
 .nav button:hover{color:var(--txt);background:var(--surf-1)}
 .nav button.on{color:var(--txt);background:var(--surf-2);box-shadow:var(--elev-1)}
-.topo-dir{margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.topo-dir{margin-left:auto;display:flex;align-items:center;gap:8px;
+  min-width:0;flex-wrap:nowrap;flex-shrink:0}
 /* A busca cede espaco antes de qualquer outra coisa: e o campo que pode
    encolher sem perder a funcao. */
 .campo-busca{display:flex;align-items:center;gap:7px;background:var(--surf-1);
@@ -547,12 +549,24 @@ a{color:inherit}
 ::-webkit-scrollbar-thumb{background:var(--barra);border-radius:99px}
 ::-webkit-scrollbar-thumb:hover{background:var(--barra-2)}
 
-/* Espaco curto: o nome de quem esta logado e a primeira coisa dispensavel —
-   o botao Sair ao lado ja diz que ha sessao aberta. */
-@media (max-width:1200px){ #sessao .quem{display:none} }
+/* Quem esta logado: circulo com as iniciais mais o nome. Em tela apertada o
+   nome sai e ficam so as iniciais — 90px a menos, e a barra continua tendo
+   dono, o que nao acontecia quando o nome simplesmente sumia. */
+#sessao{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.eu{display:flex;align-items:center;gap:8px;min-width:0}
+.eu .ini{width:28px;height:28px;border-radius:50%;flex-shrink:0;
+  display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;
+  letter-spacing:.02em;background:var(--surf-2);color:var(--txt-2);
+  border:1px solid var(--line-2)}
+.eu .quem{font-size:12.5px;color:var(--txt-3);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:150px}
+@media (max-width:1420px){ .eu .quem{display:none} }
+/* Abaixo de 920 a linha unica deixa de fazer sentido: o menu ganha a propria
+   faixa, largura inteira, e rola por dentro. E o unico ponto em que envolver
+   e uma decisao de layout, e nao um acidente. */
 @media (max-width:920px){
-  .topo-in{gap:10px}
-  .nav{order:3;width:100%;overflow-x:auto;padding-bottom:2px;flex-wrap:nowrap}
+  .topo-in{gap:10px;flex-wrap:wrap}
+  .nav{order:3;width:100%;overflow-x:auto;padding-bottom:2px;flex-wrap:nowrap;flex:1 1 100%}
   .campo-busca{flex:1 1 140px}
   .cab h1{font-size:21px}
   .esteira{transform:none}
@@ -615,5 +629,5 @@ select{background-color:var(--campo-bg)}
 @media (max-width:1439px){
   .bt-atualizar span{display:none}
   .bt-atualizar{padding:7px 9px}
-  .campo-busca{max-width:170px}
+  .campo-busca{max-width:225px}
 }

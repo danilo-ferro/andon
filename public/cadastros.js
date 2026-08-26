@@ -430,8 +430,12 @@ async function recarrega(msg, tipo) {
 }
 
 function pintaSessao() {
+  const nome = (sessao && (sessao.nome || sessao.email)) || 'conectado';
+  const iniciais = nome.split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(x => x[0]).join('').toUpperCase() || '?';
   $('sessao').innerHTML = logado()
-    ? `<span class="quem">${esc((sessao.nome || sessao.email) || 'conectado')}</span>
+    ? `<span class="eu" title="${esc(nome)}">
+         <i class="ini">${esc(iniciais)}</i><span class="quem">${esc(nome)}</span></span>
        <button class="bt" id="senha">Trocar senha</button>
        <button class="bt" id="sair">Sair</button>`
     : `<a class="bt p" href="/entrar">Entrar</a>`;

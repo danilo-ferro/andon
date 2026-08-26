@@ -600,3 +600,20 @@ select{background-color:var(--campo-bg)}
 .tema-op .marca-ok{margin-left:auto;color:var(--s5);font-size:13px;visibility:hidden}
 .tema-op.on .marca-ok{visibility:visible}
 @media (max-width:920px){.tema-bt span:last-child{display:none}}
+
+/* ---- Botao Atualizar ----
+   O relogio de 30s ja faz isso sozinho; o botao existe para quem quer ver
+   agora e ter a confirmacao de que viu. */
+.bt-atualizar{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;padding:7px 12px}
+.bt-atualizar svg{width:14px;height:14px;flex-shrink:0}
+.bt-atualizar.girando svg{animation:gira 0.8s linear infinite}
+.bt-atualizar.girando{opacity:.65;pointer-events:none}
+@keyframes gira{to{transform:rotate(360deg)}}
+/* Abaixo de 1440 a barra do topo fica apertada: o rotulo sai (o icone diz a
+   mesma coisa, e o title explica no hover) e a busca cede mais um pouco de
+   largura. Sem isso a barra quebrava em duas linhas so por causa do botao. */
+@media (max-width:1439px){
+  .bt-atualizar span{display:none}
+  .bt-atualizar{padding:7px 9px}
+  .campo-busca{max-width:170px}
+}

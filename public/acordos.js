@@ -89,13 +89,11 @@ async function lerTudo(t, campos) {
   return out;
 }
 const criar = (t, o)    => api(t, { method: 'POST', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
-/* `versao` é o updated_at que estava na linha quando ela foi aberta. Indo junto
-   como filtro, a gravação só acontece se ninguém tiver mexido no registro nesse
-   meio tempo — se mexeu, o PATCH não encontra linha e devolve lista vazia, que
-   é o sinal de conflito. Sem isso, quem abriu a tratativa de manhã e salvou à
-   tarde apagava por cima tudo o que outra pessoa tinha feito no dia. */
-const mudar = (t, id, o, versao) =>
-  api(`${t}?id=eq.${id}` + (versao ? `&updated_at=eq.${encodeURIComponent(versao)}` : ''),
+/* Quem salva por ultimo manda — foi a regra escolhida. O que protege o
+   trabalho de todo mundo nao e travar a gravacao, e a tela se atualizar
+   sozinha a cada 30s, para que ninguem esteja editando um dado velho. */
+const mudar = (t, id, o) =>
+  api(`${t}?id=eq.${id}`,
       { method: 'PATCH', body: JSON.stringify(o), headers: { Prefer: 'return=representation' } });
 
 /* ---------- estado ---------- */
@@ -440,7 +438,35 @@ function telaKanban(l) {
         : '<div class="sem-contato">Vazio.</div>'}</div>
     </div>`;
   }).join('')}</div>`;
+  ajustaEsteira();
 }
+
+/* Mede onde a esteira começa e dá a ela exatamente o que sobra da janela.
+   Medir é o ponto: a barra de filtros muda de altura conforme a largura da
+   tela, então qualquer número fixo aqui acerta numa tela e erra em todas as
+   outras. Com a altura certa, a esteira rola por dentro, a barra de rolagem
+   horizontal fica sempre ao alcance, e descer a página não desloca nada. */
+function ajustaEsteira() {
+  const cx = document.querySelector('#t-kanban .esteira-cols');
+  if (!cx || !cx.offsetParent) return;
+  // Distância do topo do documento: não muda com a rolagem, ao contrário do
+  // topo relativo à janela, que mudaria a cada medição e nunca estabilizaria.
+  const topo = cx.getBoundingClientRect().top + window.scrollY;
+  let alt = Math.max(280, Math.round(window.innerHeight - topo - 14));
+  cx.style.setProperty('--alt-esteira', alt + 'px');
+
+  /* O que ainda passar da janela sai daqui. Em vez de tentar prever margens e
+     espaçamentos que a página tem por baixo, a esteira devolve exatamente o
+     que sobrou — e a página deixa de rolar por baixo dela, que era o que
+     fazia tudo escorregar de lugar ao descer. */
+  const passa = document.documentElement.scrollHeight - window.innerHeight;
+  if (passa > 0 && alt - passa >= 280) cx.style.setProperty('--alt-esteira', (alt - passa) + 'px');
+}
+let ajusteAgendado = null;
+window.addEventListener('resize', () => {
+  clearTimeout(ajusteAgendado);
+  ajusteAgendado = setTimeout(ajustaEsteira, 120);
+});
 
 /* ---------- lista ---------- */
 /* ---------- ordenação da lista ----------
@@ -927,7 +953,9 @@ const anosDisponiveis = () => {
    ================================================================== */
 let ULTIMA_SINC = null;      // maior updated_at que esta tela já viu
 let sincronizando = null;
-const A_CADA = 60000;
+/* Trinta segundos: perto o suficiente para duas pessoas no mesmo caso nao se
+   atrapalharem, e barato — a busca traz so o que mudou desde a ultima vez. */
+const A_CADA = 30000;
 
 const maiorUpdated = (l, atual) => (l || []).reduce(
   (m, x) => (x.updated_at && (!m || x.updated_at > m)) ? x.updated_at : m, atual);
@@ -949,9 +977,15 @@ function funde(lista, novas) {
 /* Devolve quantas linhas mudaram. Nunca lança: sincronizar é conveniência, e
    uma falha de rede aqui não pode virar erro vermelho por cima do trabalho de
    ninguém — na próxima passada tenta de novo. */
-async function sincroniza() {
+async function sincroniza(agora) {
   if (sincronizando) return sincronizando;
-  if (!ULTIMA_SINC || !logado()) return 0;
+  if (!logado()) return 0;
+  // Sem marco nenhum a tela nunca carregou direito: recarrega tudo.
+  if (!ULTIMA_SINC) {
+    if (!agora) return 0;
+    await carrega(); marcaSincronia(); desenha();
+    return TRAT.length;
+  }
   sincronizando = (async () => {
     const desde = encodeURIComponent(ULTIMA_SINC);
     const [t, rc] = await Promise.all([
@@ -981,23 +1015,10 @@ async function sincroniza() {
     if (total) {
       marcaSincronia();
       desenha();
-      avisaSeMudouAberta(t);
     }
     return total;
   })().catch(() => 0).finally(() => { sincronizando = null; });
   return sincronizando;
-}
-
-/* Se a tratativa que está aberta na gaveta mudou no banco, quem está com ela
-   aberta precisa saber ANTES de salvar — e o que está digitado não pode ser
-   substituído sem permissão. Por isso só avisa; a decisão é de quem digitou. */
-function avisaSeMudouAberta(mudadas) {
-  if (!rascunho || !rascunho.id || !$('gav').classList.contains('on')) return;
-  const nova = (mudadas || []).find(x => x.id === rascunho.id);
-  if (!nova || nova.updated_at === rascunho.updated_at) return;
-  alerta('Enquanto você tem esta tratativa aberta, outra pessoa a atualizou no '
-       + 'sistema. O que você digitou continua aqui. Ao salvar, o sistema avisa '
-       + 'o que mudou antes de gravar por cima.', 'erro');
 }
 
 /* Volta ao foco: sincroniza na hora. É o gesto mais comum da equipe — sair
@@ -1008,7 +1029,25 @@ function ligaSincronia() {
   });
   window.addEventListener('focus', () => sincroniza());
   window.addEventListener('online', () => sincroniza());
-  setInterval(() => { if (document.visibilityState === 'visible') sincroniza(); }, A_CADA);
+  setInterval(sincroniza, A_CADA);
+  const bt = $('atualizar');
+  if (bt) bt.onclick = () => atualizaAgora();
+}
+
+/* O botão. Faz o mesmo que o relógio de 30s, mas na hora e dizendo o que
+   achou — quem clica quer saber se veio alguma coisa, e "nada mudou" é uma
+   resposta tão boa quanto "3 tratativas atualizadas". */
+async function atualizaAgora() {
+  const bt = $('atualizar');
+  if (bt) bt.classList.add('girando');
+  try {
+    const n = await sincroniza(true);
+    vejoSeMudouAVersao();
+    alerta(n ? `Atualizado: ${n} ${n === 1 ? 'registro mudou' : 'registros mudaram'}.`
+             : 'Tudo em dia — nada mudou desde a última atualização.', 'ok');
+  } finally {
+    if (bt) bt.classList.remove('girando');
+  }
 }
 
 /* ---------- a versão do próprio sistema ----------
@@ -1781,30 +1820,6 @@ function coletaAcordo() {
   if ($('bloco-verbas')) r.verbas = leVerbasDaTela();
 }
 
-/* ---------- alguém mexeu antes ----------
-   Duas pessoas na mesma tratativa é rotina aqui: a operadora fecha o acordo e
-   o financeiro protocola. O que não pode é a segunda gravação apagar a
-   primeira sem ninguém ver. Quando isso acontece, nada é gravado, o sistema
-   mostra exatamente o que mudou e quem está digitando decide. */
-const ROTULO_CAMPO = {
-  status: 'Status', operador: 'Operador', advogado: 'Advogado', valor: 'Valor',
-  data_atualizacao: 'Última atualização', data_protocolo: 'Protocolada em',
-  data_minuta_assinada: 'Minuta assinada em', previsao: 'Previsão de recebimento',
-  observacoes: 'Observações', reu: 'Réu', autor: 'Autor', processo: 'Processo',
-  fase: 'Fase processual', estado: 'UF', canal: 'Forma de contato', tipo: 'Tipo',
-  produto: 'Produto', forma_pagamento: 'Forma de pagamento', prazo_dias: 'Prazo (dias)',
-  tipo_prazo: 'Tipo de prazo', qtd_parcelas: 'Parcelas',
-  escritorio_adverso: 'Escritório', recebido: 'Recebido', data_recebimento: 'Data do recebimento'
-};
-const mostraValor = (campo, v) => {
-  if (v === null || v === undefined || v === '') return '—';
-  if (campo === 'status') return fase(v).nome;
-  if (campo === 'valor') return brl2(v);
-  if (/^data|previsao/.test(campo)) return dtb(v);
-  if (typeof v === 'boolean') return v ? 'sim' : 'não';
-  return String(v);
-};
-
 /* O banco recusou por processo repetido. Busca a tratativa que existe — ela
    pode ter sido criada hoje por outra pessoa e nem estar na lista desta aba —
    e põe na tela com um clique para abrir. */
@@ -1832,48 +1847,6 @@ async function ofereceAExistente(processo) {
     : ' Recarregue a tela para encontrá-la.'}
   </div>`;
   if (t) $('cf-abrir').onclick = () => { esqueceRascunho(); abreForm(t); desenha(); };
-}
-
-async function conflito(r, meus) {
-  const atual = (await ler('tratativa', `select=*&id=eq.${r.id}&limit=1`).catch(() => null)) || [];
-  const nova = atual[0];
-  if (!nova) {
-    alerta('Não consegui gravar: esta tratativa não está mais no sistema. '
-         + 'Recarregue a tela antes de continuar.', 'erro');
-    return;
-  }
-  // O que a outra pessoa mudou, e o que eu ia gravar por cima.
-  const linhas = Object.keys(meus).filter(c => {
-    const antes = r[c] ?? null, agora = nova[c] ?? null;
-    return String(antes ?? '') !== String(agora ?? '');
-  });
-
-  const i = TRAT.findIndex(t => t.id === nova.id);
-  if (i >= 0) TRAT[i] = nova; else TRAT.push(nova);
-  marcaSincronia();
-
-  $('recado').innerHTML = `<div class="nota">
-    <b>Nada foi gravado.</b> Outra pessoa atualizou esta tratativa enquanto você
-    a tinha aberta${nova.operador ? ` — ela está com <b>${esc(nova.operador)}</b>` : ''}.
-    Para não apagar o trabalho dela, o sistema parou aqui.
-    ${linhas.length ? `<table class="conflito-tb">
-      <tr><th></th><th>no sistema agora</th><th>o que você digitou</th></tr>
-      ${linhas.map(c => `<tr>
-        <td>${esc(ROTULO_CAMPO[c] || c)}</td>
-        <td><b>${esc(mostraValor(c, nova[c]))}</b></td>
-        <td>${esc(mostraValor(c, meus[c]))}</td>
-      </tr>`).join('')}</table>` : ''}
-    <div class="acoes-conflito">
-      <button type="button" class="bt" id="cf-recarregar">Usar o que está no sistema</button>
-      <button type="button" class="bt p" id="cf-forcar">Gravar o meu por cima</button>
-    </div>
-  </div>`;
-  $('cf-recarregar').onclick = () => { esqueceRascunho(); abreForm(nova); desenha(); };
-  $('cf-forcar').onclick = () => {
-    rascunho.forcar = true;
-    rascunho.updated_at = nova.updated_at;
-    protege(salvar);
-  };
 }
 
 /* Enquanto a tratativa nova não existe no banco, cada passada pelo formulário
@@ -2123,43 +2096,43 @@ async function salvar() {
     dados.chave_cliente = r.chave_cliente || (r.chave_cliente = ANDON_REDE.chaveNova());
   }
 
-  /* A versão que estava na tela quando esta tratativa foi aberta. Vai junto na
-     gravação para que ninguém escreva por cima do trabalho de outra pessoa sem
-     saber. `forcar` só existe depois de o sistema ter mostrado o que mudou e a
-     pessoa ter escolhido gravar mesmo assim. */
-  const versao = (r.id && !r.forcar) ? r.updated_at : null;
+  /* Grava e, aconteça o que acontecer, só segue com a linha gravada na mão.
 
-  let salvo;
+     Aqui estava o bug que fez uma tratativa sumir depois de dizer "salva": o
+     aviso de sucesso vinha no fim da função, sem ninguém ter conferido se a
+     resposta trouxe a linha. Resposta vazia — por qualquer motivo — passava
+     por gravação boa, e o rascunho de resgate era apagado junto. A pessoa via
+     "Tratativa salva.", a tratativa não existia, e não sobrava nem o rascunho.
+
+     Agora sucesso é uma linha, não a ausência de erro. E quando a resposta não
+     traz linha, o sistema PERGUNTA ao servidor se ela existe: para tratativa
+     nova, pela chave própria que foi junto na gravação; para edição, pelo id.
+     É para isso que a chave existe — e ela vale para qualquer falha, não só
+     para as que o erro do banco descrevia com as palavras certas. */
+  let salvo = null, falha = null;
   try {
-    salvo = r.id ? await mudar('tratativa', r.id, dados, versao) : await criar('tratativa', dados);
-  } catch (e) {
-    // Duplicata da chave: a primeira tentativa tinha chegado. Não é erro —
-    // é a prova de que salvou.
-    if (/duplicate key|chave_cliente/i.test(e.message || '') && dados.chave_cliente) {
-      salvo = await ler('tratativa',
-        `select=*&chave_cliente=eq.${encodeURIComponent(dados.chave_cliente)}&limit=1`)
-        .catch(() => null);
-    }
-    // Processo que já existe: em vez de um beco sem saída, o registro que
-    // existe aparece na hora, com um botão para abrir.
-    if (e.processoRepetido) { await ofereceAExistente(dados.processo); return; }
-    if (!salvo || !salvo.length) {
-      guardaRascunho(dados);
-      // Diante de um erro de gravação, a primeira dúvida é "perdi o que
-      // digitei?". A resposta vem junto com o erro, não depois.
-      if (e.rede) e.message += ' Nada do que você preencheu foi perdido — '
-        + 'está tudo aqui na tela, e também guardado neste computador.';
-      throw e;
-    }
+    salvo = r.id ? await mudar('tratativa', r.id, dados) : await criar('tratativa', dados);
+  } catch (e) { falha = e; }
+
+  let gravada = (salvo && salvo[0]) || null;
+  if (!gravada) gravada = await confereGravacao(r, dados);
+
+  if (!gravada) {
+    guardaRascunho(dados);
+    /* Processo que já existe e não é nosso: em vez de um beco sem saída, o
+       registro que existe aparece na hora com um botão para abrir. Só chega
+       aqui depois de a conferência acima ter descartado a hipótese de a
+       gravação ser nossa e ter dado certo. */
+    if (falha && falha.processoRepetido) { await ofereceAExistente(dados.processo); return; }
+    const e = falha || new Error('A gravação não chegou ao sistema. Tente de novo.');
+    // Diante de um erro de gravação, a primeira dúvida é "perdi o que
+    // digitei?". A resposta vem junto com o erro, não depois.
+    e.message += ' Nada do que você preencheu foi perdido — está tudo aqui na '
+               + 'tela, e também guardado neste computador.';
+    throw e;
   }
 
-  /* PATCH que não encontrou linha: o registro mudou desde que foi aberto.
-     Nada foi gravado — e isso é a correção, não a falha. Antes esta gravação
-     passava e apagava em silêncio o que a outra pessoa tinha feito. */
-  if (versao && (!salvo || !salvo.length)) return conflito(r, dados);
-
-  const gravada = (salvo && salvo[0]) || null;
-  const id = r.id || (gravada && gravada.id);
+  const id = gravada.id;
   esqueceRascunho();
 
   /* A gravação terminou. Daqui para baixo é atualização de tela — e ela não
@@ -2167,23 +2140,39 @@ async function salvar() {
      acontecia: a releitura do banco inteiro (nove chamadas, mais de um mega)
      falhava numa piscada de rede e a operadora via "Failed to fetch" sobre uma
      tratativa que estava salva. */
-  if (gravada) {
-    const i = TRAT.findIndex(t => t.id === gravada.id);
-    if (i >= 0) TRAT[i] = gravada; else TRAT.push(gravada);
-    rascunho = { ...gravada };
-    marcaSincronia();   // a nossa própria gravação já está vista
-    pintaForm();        // redesenha a gaveta, e com ela o espaço do recado
-    desenha();
-  }
+  const i = TRAT.findIndex(t => t.id === gravada.id);
+  if (i >= 0) TRAT[i] = gravada; else TRAT.push(gravada);
+  rascunho = { ...gravada };
+  marcaSincronia();   // a nossa própria gravação já está vista
+  pintaForm();        // redesenha a gaveta, e com ela o espaço do recado
+  desenha();
+
   alerta('Tratativa salva.', 'ok');
-  if (id) {
-    // A discriminação vai depois da tratativa porque precisa do id dela.
-    // Falhar aqui não desfaz o salvamento — mas precisa ser dito.
-    try { await gravaVerbas(id, r.verbas || []); }
-    catch (e) { alerta('Tratativa salva, mas a discriminação não subiu: '
-                     + (e.message || e) + ' Clique em Salvar de novo.', 'erro'); }
-    releParcelas(id).catch(() => { });
-  }
+  // A discriminação vai depois da tratativa porque precisa do id dela.
+  // Falhar aqui não desfaz o salvamento — mas precisa ser dito.
+  try { await gravaVerbas(id, r.verbas || []); }
+  catch (e) { alerta('Tratativa salva, mas a discriminação não subiu: '
+                   + (e.message || e) + ' Clique em Salvar de novo.', 'erro'); }
+  releParcelas(id).catch(() => { });
+}
+
+/* A resposta não trouxe a linha. Antes de dizer qualquer coisa a quem digitou,
+   pergunta ao servidor se a gravação existe — pela chave própria quando é
+   tratativa nova, pelo id quando é edição.
+
+   É o que torna seguro repetir uma gravação: se a primeira tentativa chegou e
+   só a resposta se perdeu, a linha está lá e isso é sucesso, não erro. Antes
+   isso dependia de o texto do erro conter certas palavras, e bastou eu traduzir
+   uma mensagem para português para a conferência parar de acontecer. */
+async function confereGravacao(r, dados) {
+  const q = r.id
+    ? `select=*&id=eq.${r.id}&limit=1`
+    : (dados.chave_cliente
+        ? `select=*&chave_cliente=eq.${encodeURIComponent(dados.chave_cliente)}&limit=1`
+        : null);
+  if (!q) return null;
+  const l = await ler('tratativa', q).catch(() => null);
+  return (l && l[0]) || null;
 }
 
 /* A tela é a dona da discriminação: o que está aqui substitui o que havia.

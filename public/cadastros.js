@@ -592,6 +592,7 @@ async function inicia() {
     await carrega();
     desenha();
     abreOPedido();
+    ligaAtualizacao();
   } catch (e) {
     $('t-' + aba).innerHTML = `<div class="vazio">
       Não consegui carregar os cadastros.<br><br>${esc(e.message)}<br><br>
@@ -600,3 +601,49 @@ async function inicia() {
   }
 }
 inicia();
+
+
+/* ==================================================================
+   A TELA SE ATUALIZA SOZINHA
+
+   Réus, escritórios e contatos são curadoria de várias pessoas ao mesmo
+   tempo. Sem isto, quem deixasse a aba aberta ficava com a lista do
+   momento em que abriu — e cadastrava de novo o que outra pessoa já tinha
+   cadastrado. A recarga é a mesma que a da abertura: aqui as listas são
+   curtas, e buscar tudo é mais simples e mais seguro do que buscar
+   pedaços e tentar juntar.
+
+   Nunca recarrega com uma gaveta aberta: jogaria fora o que está sendo
+   digitado. Volta a valer assim que ela fecha.
+   ================================================================== */
+var A_CADA = 30000;
+var atualizando = false;
+
+async function atualizaCadastros(avisar) {
+  if (atualizando) return;
+  var gav = $('gav');
+  if (gav && gav.classList.contains('on')) return;   // tem gente digitando
+  atualizando = true;
+  var bt = $('atualizar');
+  if (bt) bt.classList.add('girando');
+  try {
+    await carrega();
+    desenha();
+    if (avisar) alerta('Cadastros atualizados.', 'ok');
+  } catch (e) {
+    if (avisar) alerta('Não consegui atualizar agora: ' + (e.message || e), 'erro');
+  } finally {
+    atualizando = false;
+    if (bt) bt.classList.remove('girando');
+  }
+}
+
+function ligaAtualizacao() {
+  var bt = $('atualizar');
+  if (bt) bt.onclick = function () { atualizaCadastros(true); };
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') atualizaCadastros(false);
+  });
+  window.addEventListener('focus', function () { atualizaCadastros(false); });
+  setInterval(function () { atualizaCadastros(false); }, A_CADA);
+}

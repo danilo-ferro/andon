@@ -4,18 +4,27 @@
 .gav-larga{width:min(760px,100%)}
 
 /* ---- Filtros ---- */
-.filtros-cx{max-width:2100px;margin:16px auto 0;padding:0 20px}
-.filtros-linha{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;
+.filtros-cx{max-width:2100px;margin:14px auto 0;padding:0 20px}
+/* Grade, nao fila. Em fila cada filtro tinha a largura do proprio conteudo:
+   as colunas nao se alinhavam entre as linhas, e o "Limpar" — empurrado para
+   a direita — ficava sozinho depois de um vazio enorme. Numa grade de colunas
+   iguais tudo se alinha, e o botao ocupa uma celula como os outros. */
+.filtros-linha{display:grid;gap:10px 10px;align-items:end;
+  grid-template-columns:repeat(auto-fit,minmax(146px,1fr));
   background:linear-gradient(165deg,var(--cx-1),var(--cx-2));
-  border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.filtro{display:flex;flex-direction:column;gap:4px;min-width:132px}
+  border:1px solid var(--line);border-radius:12px;padding:13px 14px}
+.filtro{display:flex;flex-direction:column;gap:4px;min-width:0}
 .filtro > span{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
   color:var(--txt-3);font-family:'JetBrains Mono',monospace}
 .filtro select,.filtro input{background:var(--campo-bg);border:1px solid var(--line);
   border-radius:8px;padding:6px 9px;color:var(--txt);font-size:12.5px;width:100%}
 .filtro select:focus,.filtro input:focus{outline:none;border-color:var(--s4)}
-.filtros-linha .limpar{margin-left:auto;align-self:center}
-.resumo-filtro{font-size:11.5px;color:var(--txt-3);margin-top:9px;
+/* "Limpar" saiu da grade dos filtros: la dentro ele parecia mais um campo, e
+   sobrava um vazio ao lado. Na linha do resumo ele fica junto do numero que os
+   filtros produziram, que e exatamente sobre o que ele age. */
+.linha-resumo{display:flex;align-items:center;gap:14px;margin-top:10px}
+.linha-resumo .limpar{flex-shrink:0;font-size:11.5px;padding:6px 12px}
+.resumo-filtro{font-size:11.5px;color:var(--txt-3);flex:1;min-width:0;
   font-family:'JetBrains Mono',monospace}
 .resumo-filtro b{color:var(--txt-2)}
 
@@ -164,8 +173,11 @@
 .parcelas-tb td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600}
 
 /* Periodo: o intervalo personalizado so aparece quando e escolhido, para a
-   barra nao carregar dois campos de data que quase nunca sao usados. */
-.filtro.periodo{min-width:190px}
+   barra nao carregar dois campos de data que quase nunca sao usados. Como os
+   rotulos deste sao os mais longos ("intervalo personalizado"), ele ganha duas
+   colunas quando ha espaco — o resto da grade continua alinhado. */
+.filtro.periodo{grid-column:span 2}
+@media (max-width:760px){ .filtro.periodo{grid-column:span 1} }
 .filtro.oculto{display:none}
 
 /* ---- Discriminação dos valores (editável na etapa de Faturamento) ---- */

@@ -338,6 +338,24 @@ o acordo fechado vive na **data do protocolo**, que é o marco financeiro. Acord
 fechado sem protocolo lançado cai na atualização, senão sumiria de todos os
 períodos.
 
+## A parte de cima da tela
+
+A barra do topo é **uma linha só**, sempre. Antes ela envolvia quando não
+cabia, e a segunda linha vinha colada à direita com um vazio grande à esquerda —
+parecia quebrada, não compacta. Agora quem cede é o menu, que rola por dentro;
+só abaixo de 920px ele ganha a própria faixa, e aí é decisão de layout, não
+acidente.
+
+Quem está logado aparece como um círculo com as iniciais mais o nome. Em tela
+apertada o nome sai e ficam as iniciais: 90px a menos, e a barra continua tendo
+dono — antes o nome simplesmente sumia.
+
+Os filtros são uma **grade de colunas iguais**, não uma fila. Em fila cada
+filtro tinha a largura do próprio conteúdo, as colunas não se alinhavam entre
+as linhas, e o "Limpar" — empurrado para a direita — ficava sozinho depois de um
+vazio enorme. Ele saiu da grade e foi para a linha do resumo, junto do número
+que os filtros produziram, que é exatamente sobre o que ele age.
+
 ## Quando a rede falha
 
 `fetch` só rejeita quando a requisição não completou — o wi-fi caiu, o antivírus

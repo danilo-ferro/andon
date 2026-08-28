@@ -631,3 +631,21 @@ select{background-color:var(--campo-bg)}
   .bt-atualizar{padding:7px 9px}
   .campo-busca{max-width:225px}
 }
+
+
+/* ---- Copiar o numero do processo ----
+   Aparece em toda tabela e em todo card. O botao fica apagado e so ganha cor
+   ao passar o mouse pela linha: presente onde e preciso, sem competir com o
+   numero, que e o que se le. */
+.proc-cx{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.proc-cx .mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt-3)}
+.copiar-proc{display:inline-grid;place-items:center;width:20px;height:20px;flex-shrink:0;
+  border-radius:5px;color:var(--txt-3);opacity:0;transition:.14s;cursor:pointer}
+.copiar-proc svg{width:12px;height:12px}
+tr:hover .copiar-proc,.card-t:hover .copiar-proc,.pendente:hover .copiar-proc,
+.copiar-proc:focus-visible{opacity:.7}
+.copiar-proc:hover{opacity:1;color:var(--txt);background:var(--surf-2)}
+.copiar-proc.feito{opacity:1;color:var(--ok-tx);background:var(--ok-bg)}
+/* Onde nao ha linha para passar o mouse — o titulo da gaveta — fica sempre visivel. */
+#gavT .copiar-proc{opacity:.6}
+#gavT .proc-cx .mono{font-size:16px;color:var(--txt)}

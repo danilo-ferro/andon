@@ -338,6 +338,52 @@ o acordo fechado vive na **data do protocolo**, que é o marco financeiro. Acord
 fechado sem protocolo lançado cai na atualização, senão sumiria de todos os
 períodos.
 
+## "O dinheiro entrou" é uma coisa só
+
+Estava escrito em dois lugares que não se falavam: `tratativa.recebido`, que a
+pessoa marca na aba de Faturamento, e `acordo_recebimento.situacao`, que é o que
+a tela do Financeiro soma. Marcar **"Recebido? Sim"** não baixava o lançamento —
+o acordo continuava aparecendo **EM ATRASO** e "Recebido até aqui: R$ 0,00".
+
+A ligação vive no banco, não na tela, porque são várias telas escrevendo nas
+mesmas duas tabelas. Dois gatilhos, um para cada sentido:
+
+- marcar a tratativa como recebida **baixa os lançamentos dela**, usando a
+  melhor data que existir — a que já estava no lançamento, a que a pessoa
+  informou, o vencimento, hoje, nessa ordem;
+- baixar os lançamentos **marca a tratativa**. Em acordo parcelado, só quando a
+  última parcela cai; estornar uma baixa desmarca de volta.
+
+O que impede o vaivém entre os dois é `is distinct from`: quando o valor já é
+aquele, não há `UPDATE`, e o gatilho do outro lado não dispara de volta.
+
+Junto veio uma correção que estava escondida: `gera_parcelas` rodava a **cada**
+gravação da tratativa, mesmo quando o que mudou foi uma observação. Apagava e
+recriava linha de financeiro sem ninguém ter mexido em dinheiro. Agora só roda
+quando muda uma das cinco coisas de que ele depende — e foi isso que permitiu
+ligar os dois lados sem laço infinito.
+
+Cinco acordos já estavam marcados como recebidos com o lançamento em aberto,
+R$ 31.723,68 no total. Todos com data de recebimento informada por pessoa e
+valor do lançamento igual ao do acordo: recebimentos de verdade que ficaram sem
+baixa. Foram acertados na mesma migração.
+
+Na tela, cada lançamento passou a ter **dar baixa** e **desfazer**. Era o que
+faltava para "lançar o pagamento": marcar a tratativa inteira só serve quando
+tudo caiu de uma vez — em acordo parcelado, quem recebe é a parcela.
+
+## Copiar o processo, classificar por qualquer coluna
+
+O número do processo tem um botão de copiar em todo lugar onde aparece: lista,
+esteira, financeiro, resultados da busca, pendências e no título da gaveta. O
+clique é capturado antes de chegar na linha — senão copiar abriria a tratativa
+junto, porque quase toda linha que mostra processo também abre.
+
+A classificação por coluna virou uma implementação só, usada pela lista, pelas
+duas tabelas do Financeiro e pela busca do painel. Cada tabela guarda a própria
+escolha: uma ordem global faria o Financeiro herdar a coluna escolhida na lista,
+que nem existe lá.
+
 ## A parte de cima da tela
 
 A barra do topo é **uma linha só**, sempre. Antes ela envolvia quando não

@@ -645,6 +645,62 @@ begin
   return v;
 end $$;
 
+-- ---- "o dinheiro entrou" e uma coisa so ----
+-- Estava escrito em dois lugares que nao se falavam: tratativa.recebido, que a
+-- pessoa marca na aba de Faturamento, e acordo_recebimento.situacao, que e o
+-- que a tela do Financeiro soma. Marcar "Recebido? Sim" nao baixava o
+-- lancamento: o acordo continuava aparecendo EM ATRASO e "Recebido ate aqui:
+-- R$ 0,00". A ligacao vive aqui, e nao na tela, porque sao varias telas
+-- escrevendo nas mesmas duas tabelas.
+
+-- Ida: marcar a tratativa como recebida baixa os lancamentos dela.
+create or replace function ao_marcar_tratativa_recebida() returns trigger
+  language plpgsql set search_path to 'public','pg_temp' as $$
+begin
+  if new.recebido then
+    update acordo_recebimento
+       set situacao = 'PAGO',
+           -- A melhor data que existe, nesta ordem: a que ja estava no
+           -- lancamento, a que a pessoa informou, o vencimento, e hoje.
+           data_pagamento = coalesce(data_pagamento, new.data_recebimento,
+                                     vencimento, current_date)
+     where tratativa_id = new.id
+       and situacao is distinct from 'PAGO';
+  end if;
+  return null;
+end $$;
+
+-- Volta: baixar os lancamentos marca a tratativa. Tanto faz por onde a pessoa
+-- lanca — pela tratativa ou pelo Financeiro — os dois lados contam a mesma
+-- historia. Em acordo parcelado, so quando a ultima parcela cai.
+create or replace function ao_mudar_recebimento() returns trigger
+  language plpgsql set search_path to 'public','pg_temp' as $$
+declare
+  v_id bigint := coalesce(new.tratativa_id, old.tratativa_id);
+  v_total int; v_pagos int; v_data date;
+begin
+  if v_id is null then return null; end if;
+  select count(*), count(*) filter (where situacao = 'PAGO'), max(data_pagamento)
+    into v_total, v_pagos, v_data
+    from acordo_recebimento where tratativa_id = v_id;
+
+  -- Sem lancamento nenhum a conta nao diz nada: a tratativa fica como esta. E o
+  -- caso do historico antigo, que tem a marca e nunca teve lancamento.
+  if v_total = 0 then return null; end if;
+
+  -- `is distinct from` e o que impede o vaivem: quando o valor ja e esse nao ha
+  -- UPDATE, e o gatilho do outro lado nao dispara de volta.
+  update tratativa t
+     set recebido = (v_pagos = v_total),
+         data_recebimento = case when v_pagos = v_total
+                                 then coalesce(t.data_recebimento, v_data)
+                                 else t.data_recebimento end
+   where t.id = v_id
+     and (t.recebido is distinct from (v_pagos = v_total)
+          or (v_pagos = v_total and t.data_recebimento is null and v_data is not null));
+  return null;
+end $$;
+
 -- Liga verba e recebimento a tratativa pelo id do acordo, e apaga a previsao
 -- do sistema onde o lancamento real ja chegou.
 create or replace function amarra_financeiro() returns void
@@ -963,8 +1019,18 @@ create trigger toca_acordo_recebimento  before update on acordo_recebimento
 
 create trigger t_trat_calcula   before insert or update on tratativa
   for each row execute function ao_salvar_tratativa();
-create trigger t_trat_parcelas  after  insert or update on tratativa
-  for each row execute function ao_salvar_tratativa_parcelas();
+
+-- So as cinco colunas de que gera_parcelas depende. Ligado a qualquer gravacao,
+-- ele apagava e recriava linha de financeiro quando alguem so trocava uma
+-- observacao — e era isso que fazia a ligacao com o recebimento entrar em laco.
+create trigger t_trat_parcelas
+  after insert or update of status, valor, previsao, forma_pagamento, qtd_parcelas
+  on tratativa for each row execute function ao_salvar_tratativa_parcelas();
+
+create trigger t_trat_baixa after insert or update of recebido, data_recebimento
+  on tratativa for each row execute function ao_marcar_tratativa_recebida();
+create trigger t_receb_baixa after insert or update or delete
+  on acordo_recebimento for each row execute function ao_mudar_recebimento();
 
 -- =====================================================================
 -- 10. VIEWS

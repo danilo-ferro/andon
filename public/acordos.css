@@ -171,6 +171,9 @@
 .parcelas-tb{width:100%;border-collapse:collapse;margin-top:8px}
 .parcelas-tb td{padding:6px 0;font-size:12px;border-bottom:1px solid var(--line-fraca)}
 .parcelas-tb td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600}
+.parcelas-tb td:last-child{padding-left:10px;width:1%;white-space:nowrap}
+.bt-mini.baixar{border-color:var(--ok-bd);color:var(--ok-tx)}
+.bt-mini.baixar:hover{background:var(--ok-bg);color:var(--ok-tx);border-color:var(--ok-tx)}
 
 /* Periodo: o intervalo personalizado so aparece quando e escolhido, para a
    barra nao carregar dois campos de data que quase nunca sao usados. Como os

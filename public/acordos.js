@@ -375,7 +375,7 @@ function cardT(t) {
   const cls = d === null ? '' : d > 45 ? 'r' : d > 20 ? 'a' : 'v';
   const primeiroNome = n => String(n || '').split(' ')[0];
   return `<article class="card-t" data-abrir="${t.id}" style="--c:${fase(t.status).cor}">
-    <div class="proc"><span>${esc(t.processo)}</span>
+    <div class="proc">${proc(t.processo)}
       ${d !== null ? `<span class="tempo ${cls}">${d}d</span>` : ''}</div>
 
     <div class="partes">${esc(t.autor || 'Sem autor informado')}</div>
@@ -471,57 +471,107 @@ window.addEventListener('resize', () => {
 });
 
 /* ---------- lista ---------- */
-/* ---------- ordenação da lista ----------
-   Cada coluna sabe de onde tira o valor e se é texto ou número. Ordenar pelo
-   que está escrito na tela seria mais curto e erraria em três lugares: "R$ 1.000"
-   viria antes de "R$ 900", "20 dias" antes de "9 dias", e o status sairia em
-   ordem alfabética em vez da ordem do funil. */
+/* ---------- tabelas que classificam ----------
+   Uma implementação só, usada pela lista, pelo financeiro, pelo ranking e pela
+   busca do painel. Cada coluna diz de onde tira o valor e se é número: ordenar
+   pelo que está escrito na tela seria mais curto e erraria em três lugares —
+   "R$ 1.000" viria antes de "R$ 900", "20 dias" antes de "9 dias", e o status
+   sairia em ordem alfabética em vez da ordem do funil.
+
+   Cada tabela guarda a própria escolha. Uma ordem só, global, faria o
+   financeiro herdar a coluna escolhida na lista, que nem existe lá. */
+const ORDENS = { lista: { campo: 'data', dir: -1 } };
+
+function ordenaPor(chave, linhas, colunas) {
+  const o = ORDENS[chave];
+  const c = o && colunas.find(x => x.k === o.campo);
+  if (!c) return [...linhas];
+  const vazio = v => v === null || v === undefined || v === '';
+  return [...linhas].sort((a, b) => {
+    const x = c.v(a), y = c.v(b);
+    // Sem valor vai para o fim, seja qual for o sentido: "—" no topo não informa nada.
+    if (vazio(x)) return vazio(y) ? 0 : 1;
+    if (vazio(y)) return -1;
+    const r = c.num ? x - y : String(x).localeCompare(String(y), 'pt-BR', { numeric: true });
+    return r * o.dir;
+  });
+}
+
+function cabecalhoOrd(chave, colunas) {
+  const o = ORDENS[chave] || {};
+  return `<thead><tr>${colunas.map(c => {
+    const ativa = o.campo === c.k;
+    return `<th class="ord ${c.n ? 'n' : ''} ${ativa ? 'on' : ''}" data-ord="${esc(c.k)}"
+      title="Classificar por ${esc(c.rot)}">${esc(c.rot)}<i class="seta">${
+      ativa ? (o.dir === 1 ? '▲' : '▼') : '↕'}</i></th>`;
+  }).join('')}</tr></thead>`;
+}
+
+/* O clique é ligado dentro da tabela, e não na tela inteira: numa mesma tela
+   pode haver duas tabelas que classificam (o financeiro tem), e sem o escopo
+   uma passaria a mandar na outra. */
+function ligaOrd(chave, colunas, redesenha) {
+  document.querySelectorAll(`[data-tb="${chave}"] [data-ord]`).forEach(th => th.onclick = () => {
+    const k = th.dataset.ord, c = colunas.find(x => x.k === k), o = ORDENS[chave];
+    /* Mesma coluna: inverte. Coluna nova: começa pelo sentido que interessa —
+       texto de A a Z, número e data do maior/mais recente para o menor. */
+    ORDENS[chave] = (o && o.campo === k)
+      ? { campo: k, dir: -o.dir }
+      : { campo: k, dir: (c && (c.num || c.data)) ? -1 : 1 };
+    redesenha();
+  });
+}
+
+/* ---------- copiar o número do processo ----------
+   Pedido para todos os lugares onde ele aparece, então vira uma função só. O
+   clique não pode subir: quase toda linha que mostra processo também abre a
+   tratativa, e copiar abriria a gaveta junto. */
+const proc = n => !n ? '<span class="mono">—</span>'
+  : `<span class="proc-cx"><span class="mono">${esc(n)}</span>
+      <button type="button" class="copiar-proc" data-copiar-proc="${esc(n)}"
+        title="Copiar o número do processo" aria-label="Copiar o número do processo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="12" height="12" rx="2.5"/>
+          <path d="M5 15V5.5A2.5 2.5 0 0 1 7.5 3H15"/></svg></button></span>`;
+
+/* Na fase de captura, de proposito. A linha da tabela tem o proprio onclick
+   que abre a tratativa; um ouvinte comum no document so rodaria depois dele, e
+   copiar abriria a gaveta junto. Capturando, este vem primeiro e corta o
+   caminho antes de o clique chegar na linha. */
+document.addEventListener('click', e => {
+  const bt = e.target.closest && e.target.closest('[data-copiar-proc]');
+  if (!bt) return;
+  e.preventDefault(); e.stopPropagation();
+  copia(bt.dataset.copiarProc);
+  bt.classList.add('feito');
+  setTimeout(() => bt.classList.remove('feito'), 1200);
+}, true);
+
 const COLUNAS = [
   { k: 'processo',  rot: 'Processo',  v: t => t.processo || '' },
   { k: 'autor',     rot: 'Autor',     v: t => t.autor || '' },
   { k: 'reu',       rot: 'Réu',       v: t => t.reu || '' },
-  { k: 'status',    rot: 'Status',    n: true, v: t => fase(t.status).ordem ?? 99 },
+  { k: 'status',    rot: 'Status',    n: true, num: true, v: t => fase(t.status).ordem ?? 99 },
   { k: 'fase',      rot: 'Fase',      v: t => t.fase || '' },
   { k: 'estado',    rot: 'UF',        v: t => t.estado || '' },
   { k: 'advogado',  rot: 'Advogado',  v: t => t.advogado || '' },
   { k: 'operador',  rot: 'Operador',  v: t => t.operador || '' },
-  { k: 'data',      rot: 'Data',      v: t => t.data || '' },
+  { k: 'data',      rot: 'Data',      data: true, v: t => t.data || '' },
   { k: 'valor',     rot: 'Valor',     n: true, num: true, v: t => +t.valor || 0 },
   { k: 'parada',    rot: 'Parado',    n: true, num: true, v: parada },
   { k: 'duracao',   rot: 'Levou',     n: true, num: true, v: duracao }
 ];
-/* Data primeiro e da mais nova para a mais velha: é como a equipe lê a lista. */
-let ordemLista = { campo: 'data', dir: -1 };
-
-function ordenaLista(l) {
-  const c = COLUNAS.find(x => x.k === ordemLista.campo) || COLUNAS[8];
-  const d = ordemLista.dir;
-  return [...l].sort((a, b) => {
-    const x = c.v(a), y = c.v(b);
-    // Sem valor vai para o fim, dê qual for o sentido: "—" no topo não informa nada.
-    if (x === null || x === undefined) return y === null || y === undefined ? 0 : 1;
-    if (y === null || y === undefined) return -1;
-    const r = c.num ? x - y : String(x).localeCompare(String(y), 'pt-BR', { numeric: true });
-    return r * d;
-  });
-}
 
 function telaLista(l) {
-  const ord = ordenaLista(l);
-  $('t-lista').innerHTML = `<div class="tb-rolagem"><table class="tb-lista">
-    <thead><tr>
-      ${COLUNAS.map(c => {
-        const ativa = ordemLista.campo === c.k;
-        return `<th class="ord ${c.n ? 'n' : ''} ${ativa ? 'on' : ''}" data-ord="${c.k}"
-          title="Classificar por ${esc(c.rot)}">${esc(c.rot)}<i class="seta">${
-          ativa ? (ordemLista.dir === 1 ? '▲' : '▼') : '↕'}</i></th>`;
-      }).join('')}
-    </tr></thead><tbody>
+  const ord = ordenaPor('lista', l, COLUNAS);
+  $('t-lista').innerHTML = `<div class="tb-rolagem"><table class="tb-lista" data-tb="lista">
+    ${cabecalhoOrd('lista', COLUNAS)}<tbody>
     ${ord.slice(0, 600).map(t => {
       const d = parada(t);
       const dur = duracao(t);
       return `<tr data-abrir="${t.id}">
-        <td class="mono">${esc(t.processo)}</td>
+        <td>${proc(t.processo)}</td>
         <td>${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
         <td>${esc(t.reu || '—')}</td>
         <td><span class="marcador"><i style="background:${fase(t.status).cor};color:${fase(t.status).cor}"></i>${esc(fase(t.status).nome)}</span></td>
@@ -542,17 +592,7 @@ function telaLista(l) {
     <div class="resumo-filtro">${resumoDuracao(ord)}${
       ord.length > 600 ? ` · mostrando 600 de ${ord.length}` : ''}</div>`;
 
-  document.querySelectorAll('#t-lista [data-ord]').forEach(th => th.onclick = () => {
-    const k = th.dataset.ord;
-    const c = COLUNAS.find(x => x.k === k);
-    /* Mesma coluna: inverte. Coluna nova: começa pelo sentido que interessa —
-       texto de A a Z, número e data do maior/mais recente para o menor. */
-    ordemLista = ordemLista.campo === k
-      ? { campo: k, dir: -ordemLista.dir }
-      : { campo: k, dir: (c && (c.num || k === 'data')) ? -1 : 1 };
-    telaLista(l);
-    ligaAbrir();
-  });
+  ligaOrd('lista', COLUNAS, () => { telaLista(l); ligaAbrir(); });
 }
 
 /* Quanto tempo o escritório leva para encerrar uma tratativa, do primeiro
@@ -617,22 +657,32 @@ const faturadas = l => l.filter(t => t.data_protocolo);
 /* Quando ha busca ou um recorte estreito, o gestor quer chegar no caso, nao
    so no numero. Sem isto ele tinha que trocar de aba para abrir a tratativa
    que acabou de procurar. */
+const COL_BUSCA = [
+  { k: 'processo', rot: 'Processo', v: t => t.processo || '' },
+  { k: 'autor',    rot: 'Autor',    v: t => t.autor || '' },
+  { k: 'reu',      rot: 'Réu',      v: t => t.reu || '' },
+  { k: 'status',   rot: 'Status',   n: true, num: true, v: t => fase(t.status).ordem ?? 99 },
+  { k: 'operador', rot: 'Operador', v: t => t.operador || '' },
+  { k: 'data',     rot: 'Data',     data: true, v: t => t.data || '' },
+  { k: 'valor',    rot: 'Valor',    n: true, num: true, v: t => +t.valor || 0 }
+];
+
 function resultadosDaBusca(l) {
   const procurando = busca.trim().length > 0;
   if (!procurando && l.length > 40) return '';
   if (!l.length) return '';
-  const ord = [...l].sort((a, b) => (b.data_atualizacao || b.data || '')
-    .localeCompare(a.data_atualizacao || a.data || ''));
+  const ord = ORDENS.busca ? ordenaPor('busca', l, COL_BUSCA)
+    : [...l].sort((a, b) => (b.data_atualizacao || b.data || '')
+        .localeCompare(a.data_atualizacao || a.data || ''));
   return `<div class="cx" style="margin-bottom:14px">
     <h3>${procurando ? `Encontradas — ${l.length}` : `Tratativas do recorte — ${l.length}`}</h3>
     <p class="sub">${procurando
       ? `Resultado de <b>${esc(busca.trim())}</b>. Clique para abrir.`
       : 'Poucos casos no filtro atual, então listo todos aqui. Clique para abrir.'}</p>
-    <div class="tb-rolagem"><table class="tb-lista">
-      <thead><tr><th>Processo</th><th>Autor</th><th>Réu</th><th>Status</th>
-        <th>Operador</th><th>Data</th><th class="n">Valor</th></tr></thead>
+    <div class="tb-rolagem"><table class="tb-lista" data-tb="busca">
+      ${cabecalhoOrd('busca', COL_BUSCA)}
       <tbody>${ord.slice(0, 60).map(t => `<tr data-abrir="${t.id}">
-        <td class="mono">${esc(t.processo)}</td>
+        <td>${proc(t.processo)}</td>
         <td>${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
         <td>${esc(t.reu || '—')}</td>
         <td><span class="marcador"><i style="background:${fase(t.status).cor};
@@ -661,8 +711,11 @@ function resultadosDaBusca(l) {
 
 /* A situacao vem da base congelada no dia da consolidacao. "A vencer" de
    ontem e "em atraso" hoje: quem decide isso e o calendario, nao o arquivo. */
+/* Pago e pago: a situacao gravada OU uma data de pagamento. As duas dizem a
+   mesma coisa, e ler so a primeira ja mostrou lancamento com data de pagamento
+   preenchida aparecendo como EM ATRASO. */
 function situacaoDe(r) {
-  if (r.situacao === 'PAGO') return 'PAGO';
+  if (r.situacao === 'PAGO' || r.data_pagamento) return 'PAGO';
   if (r.vencimento && r.vencimento < ISO(HOJE)) return 'EM ATRASO';
   return 'A VENCER';
 }
@@ -681,6 +734,31 @@ function caixaDe(l) {
 }
 
 let fSituacao = '';   // filtro proprio da tela financeira
+
+const COL_PROTOCOLO = [
+  { k: 'processo', rot: 'Processo', v: t => t.processo || '' },
+  { k: 'autor',    rot: 'Autor',    v: t => t.autor || '' },
+  { k: 'reu',      rot: 'Réu',      v: t => t.reu || '' },
+  { k: 'advogado', rot: 'Advogado', v: t => t.advogado || '' },
+  { k: 'operador', rot: 'Operador', v: t => t.operador || '' },
+  { k: 'minuta',   rot: 'Minuta assinada', data: true, v: t => t.data_minuta_assinada || '' },
+  { k: 'espera',   rot: 'Esperando há', n: true, num: true,
+    v: t => t.data_minuta_assinada ? dias(t.data_minuta_assinada) : null },
+  { k: 'valor',    rot: 'Valor', n: true, num: true, v: t => +t.valor || 0 }
+];
+
+/* O lançamento é a linha do dinheiro, então as colunas saem dele — mas processo
+   e autor vêm da tratativa quando ela existe, que é o nome que a equipe conhece. */
+const COL_LANC = [
+  { k: 'processo',   rot: 'Processo', v: r => (TRAT.find(t => t.id === r.tratativa_id) || {}).processo || r.processo || '' },
+  { k: 'autor',      rot: 'Autor',    v: r => (TRAT.find(t => t.id === r.tratativa_id) || {}).autor || r.autor || '' },
+  { k: 'verba',      rot: 'Verba',    v: r => verba(r.verba).nome || '' },
+  { k: 'parcela',    rot: 'Parcela',  v: r => r.parcela_rotulo || '' },
+  { k: 'vencimento', rot: 'Vencimento', data: true, v: r => r.vencimento || '' },
+  { k: 'pagamento',  rot: 'Pagamento',  data: true, v: r => r.data_pagamento || '' },
+  { k: 'situacao',   rot: 'Situação', v: r => situacaoDe(r) },
+  { k: 'valor',      rot: 'Valor', n: true, num: true, v: r => +r.valor || 0 }
+];
 
 /* Da minuta assinada ao protocolo: o pedaço do caminho que é do financeiro.
    É medido só onde as duas datas existem — inventar uma delas para aumentar a
@@ -717,14 +795,12 @@ function blocoFormalizando(l) {
     <p class="sub">Minuta assinada e devolvida à parte contrária. A partir daqui o
        acompanhamento é do financeiro: vira <b>Acordo fechado</b> quando o protocolo
        acontecer. Clique para abrir e atualizar.</p>
-    ${esperando.length ? `<div class="tb-rolagem"><table class="tb-lista">
-      <thead><tr><th>Processo</th><th>Autor</th><th>Réu</th><th>Advogado</th>
-        <th>Operador</th><th>Minuta assinada</th><th class="n">Esperando há</th>
-        <th class="n">Valor</th></tr></thead>
-      <tbody>${esperando.map(x => {
+    ${esperando.length ? `<div class="tb-rolagem"><table class="tb-lista" data-tb="protocolo">
+      ${cabecalhoOrd('protocolo', COL_PROTOCOLO)}
+      <tbody>${ordenaPor('protocolo', esperando, COL_PROTOCOLO).map(x => {
         const esp = x.data_minuta_assinada ? dias(x.data_minuta_assinada) : null;
         return `<tr data-abrir="${x.id}">
-          <td class="mono">${esc(x.processo)}</td>
+          <td>${proc(x.processo)}</td>
           <td>${esc((x.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
           <td>${esc(x.reu || '—')}</td>
           <td>${esc(x.advogado || '—')}</td>
@@ -847,7 +923,7 @@ function telaFinanceiro(l) {
           <div style="margin-top:9px;display:flex;flex-direction:column;gap:5px">
             ${pendentes.sort((a, b) => (+b.valor || 0) - (+a.valor || 0)).slice(0, 30)
               .map(t => `<button type="button" class="pendente" data-abrir="${t.id}">
-                <span class="mono">${esc(t.processo)}</span>
+                ${proc(t.processo)}
                 <span class="nm">${esc((t.autor || '—').split(' ').slice(0, 3).join(' '))}</span>
                 <b class="mono">${brl2(t.valor)}</b></button>`).join('')}
           </div>
@@ -884,13 +960,12 @@ function telaFinanceiro(l) {
         ${SITUACOES.map(s => `<button class="chip ${fSituacao === s ? 'on' : ''}" data-sit="${s}">
           ${s} — ${cx.todos.filter(r => situacaoDe(r) === s).length}</button>`).join('')}
       </div>
-      ${lanc.length ? `<div class="tb-rolagem"><table class="tb-lista">
-        <thead><tr><th>Processo</th><th>Autor</th><th>Verba</th><th>Parcela</th>
-          <th>Vencimento</th><th>Pagamento</th><th>Situação</th><th class="n">Valor</th></tr></thead>
-        <tbody>${lanc.slice(0, 400).map(r => {
+      ${lanc.length ? `<div class="tb-rolagem"><table class="tb-lista" data-tb="lanc">
+        ${cabecalhoOrd('lanc', COL_LANC)}
+        <tbody>${ordenaPor('lanc', lanc, COL_LANC).slice(0, 400).map(r => {
           const t = trat(r.tratativa_id), s = situacaoDe(r);
           return `<tr data-abrir="${r.tratativa_id}">
-            <td class="mono">${esc(t.processo || r.processo || '—')}</td>
+            <td>${proc(t.processo || r.processo)}</td>
             <td>${esc((t.autor || r.autor || '—').split(' ').slice(0, 3).join(' '))}</td>
             <td><span class="marcador"><i style="background:${verba(r.verba).cor}"></i>${esc(verba(r.verba).nome)}</span></td>
             <td class="mono">${esc(r.parcela_rotulo || '—')}</td>
@@ -907,6 +982,8 @@ function telaFinanceiro(l) {
   document.querySelectorAll('[data-sit]').forEach(b => b.onclick = () => {
     fSituacao = b.dataset.sit; desenha();
   });
+  ligaOrd('lanc', COL_LANC, () => { telaFinanceiro(l); ligaAbrir(); });
+  ligaOrd('protocolo', COL_PROTOCOLO, () => { telaFinanceiro(l); ligaAbrir(); });
 }
 
 /* ==================================================================
@@ -1395,7 +1472,8 @@ function podeFaturar() { return rascunho.status === FECHADO; }
 function pintaForm() {
   const novo = !rascunho.id;
   $('gavT').innerHTML = `
-    <h3 style="font-size:16px">${novo ? 'Nova tratativa' : esc(rascunho.processo || 'Tratativa')}</h3>
+    <h3 style="font-size:16px">${novo ? 'Nova tratativa'
+      : (rascunho.processo ? proc(rascunho.processo) : 'Tratativa')}</h3>
     <div class="passos">
       ${[['1', 'Identificação'], ['2', 'Tratativa'], ['3', 'Faturamento']].map(([n, r], i) => {
         const num = i + 1;
@@ -1619,9 +1697,14 @@ function blocoVerbas(v, valorAcordo) {
 
 /* Quando o dinheiro entra. Uma lista só: o que veio do ADVBox e o que o
    sistema previu, marcado como previsão para ninguém confundir com o realizado. */
+/* Cada linha pode receber a baixa aqui mesmo. Era o que faltava para "lancar o
+   pagamento no financeiro": marcar a tratativa inteira como recebida so serve
+   quando tudo caiu de uma vez — em acordo parcelado, quem recebe e a parcela.
+   Baixar a ultima parcela marca a tratativa sozinho, pela regra do banco. */
 function blocoRecebimentos(p) {
   if (!p.length) return '';
   const rec = soma(p.filter(x => situacaoDe(x) === 'PAGO'), x => x.valor);
+  const total = soma(p, x => x.valor);
   return `<div class="bloco"><h4>Recebimentos — ${p.length}</h4>
     <table class="parcelas-tb">${p.map(x => {
       const s = situacaoDe(x);
@@ -1631,10 +1714,33 @@ function blocoRecebimentos(p) {
         <td class="mono" style="color:var(--txt-3)">${dtb(x.data_pagamento || x.vencimento)}</td>
         <td class="n">${brl2(x.valor)}</td>
         <td class="n" style="color:${CORSIT[s]}">${s}</td>
+        <td class="n">${s === 'PAGO'
+          ? `<button type="button" class="bt-mini" data-estornar="${x.id}"
+               title="Desfazer a baixa deste lançamento">desfazer</button>`
+          : `<button type="button" class="bt-mini baixar" data-baixar="${x.id}"
+               title="Marcar este lançamento como recebido">dar baixa</button>`}</td>
       </tr>`;
     }).join('')}</table>
-    <div class="dica">Recebido até aqui: <b>${brl2(rec)}</b> de ${brl2(soma(p, x => x.valor))}.</div>
+    <div class="dica">Recebido até aqui: <b>${brl2(rec)}</b> de ${brl2(total)}.${
+      rec && rec < total ? ` Faltam <b>${brl2(total - rec)}</b>.` : ''}</div>
   </div>`;
+}
+
+/* A baixa vai direto ao banco e a tela relê a tratativa: e o banco que decide
+   se ela passa a contar como recebida, e ler de volta e mais barato do que
+   repetir aqui a regra de la. */
+function ligaRecebimentos() {
+  const mexe = async (id, pago) => {
+    await mudar('acordo_recebimento', id, pago
+      ? { situacao: 'PAGO', data_pagamento: ISO(HOJE) }
+      : { situacao: 'A VENCER', data_pagamento: null });
+    if (rascunho && rascunho.id) await releParcelas(rascunho.id);
+    alerta(pago ? 'Recebimento baixado.' : 'Baixa desfeita.', 'ok');
+  };
+  document.querySelectorAll('[data-baixar]').forEach(b =>
+    b.onclick = () => protege(() => mexe(+b.dataset.baixar, true)));
+  document.querySelectorAll('[data-estornar]').forEach(b =>
+    b.onclick = () => protege(() => mexe(+b.dataset.estornar, false)));
 }
 
 /* Mesma normalização que o banco usa em chave_nome(): a planilha antiga
@@ -1892,6 +1998,7 @@ function ligaForm() {
 
   ligaPrevisao();
   ligaVerbas();
+  ligaRecebimentos();
   pintaContatos();
 }
 

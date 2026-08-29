@@ -372,6 +372,41 @@ Na tela, cada lançamento passou a ter **dar baixa** e **desfazer**. Era o que
 faltava para "lançar o pagamento": marcar a tratativa inteira só serve quando
 tudo caiu de uma vez — em acordo parcelado, quem recebe é a parcela.
 
+## Recusar não pode parecer não funcionar
+
+"Em alguns casos a tratativa não salva" tinha uma causa concreta: **19
+tratativas** estão sem advogado ou sem réu, e **7** acordos fechados estão sem
+discriminação. São campos obrigatórios, então a gravação era recusada — só que
+a recusa não levava a lugar nenhum.
+
+Quem abria uma dessas pela busca caía na etapa de **Tratativa**, clicava em
+Salvar e lia "falta preencher: advogado". O campo do advogado fica na etapa de
+**Identificação**. A pessoa olhava a tela em que estava, não achava campo
+nenhum, e concluía — com razão — que o sistema não salvava.
+
+Duas mudanças:
+
+**A recusa leva ao campo.** Ao barrar, o sistema muda para a etapa certa, marca
+em vermelho o que está vazio, rola até ele e põe o cursor lá.
+
+**A resposta aparece onde o clique aconteceu.** A mensagem saiu do topo do
+formulário e foi para o rodapé, que é grudado na base da gaveta, logo acima dos
+botões. No topo, numa tratativa longa, ela ficava fora da vista de quem estava
+com o Salvar embaixo — o sistema explicava e ninguém lia.
+
+## Gravação que não pode se perder no meio
+
+Duas correções do mesmo tipo, achadas ao varrer o resto do sistema:
+
+**A discriminação era apagada antes de a nova subir.** Uma queda de rede entre o
+apagar e o gravar deixava o acordo sem discriminação nenhuma — e é dela que sai
+a comissão. Agora grava primeiro e só então apaga a anterior. Linha repetida
+aparece na tela e se conserta em dois cliques; dado apagado não volta.
+
+**Cadastros também dizia "salvo" sem prova.** Réus, escritórios e equipe
+anunciavam sucesso pela ausência de erro. Passam pela mesma regra dos acordos:
+sem a linha gravada de volta, não há "salvo".
+
 ## Copiar o processo, classificar por qualquer coluna
 
 O número do processo tem um botão de copiar em todo lugar onde aparece: lista,

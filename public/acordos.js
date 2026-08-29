@@ -1400,6 +1400,7 @@ function telaPainel(l) {
   document.querySelectorAll('[data-recorte]').forEach(b => b.onclick = () => {
     recorte = b.dataset.recorte; desenha();
   });
+  ligaOrd('busca', COL_BUSCA, () => { telaPainel(l); ligaAbrir(); });
 }
 
 /* ==================================================================
@@ -1489,15 +1490,22 @@ function pintaForm() {
      sumia meio segundo depois, quando a releitura das parcelas repintava o
      formulário — e a operadora ficava sem saber se tinha salvado. */
   const recadoAtual = ($('recado') || {}).innerHTML || '';
-  $('gavC').innerHTML = `<div id="recado">${recadoAtual}</div>
+  /* O recado mora no rodapé, colado ao botão que o produz. No topo ele ficava
+     fora da vista de quem estava com o Salvar embaixo: o sistema recusava a
+     gravação, dizia por quê, e a pessoa não via nada acontecer. O rodapé é
+     grudado na base da gaveta, então a resposta chega junto com o clique. */
+  $('gavC').innerHTML = `
     ${etapaIdentificacao()}${etapaTratativa()}${etapaFaturamento()}
     <div class="rodape-form">
-      ${etapa > 1 ? '<button class="bt" data-ir="' + (etapa - 1) + '">← Voltar</button>' : ''}
-      <div class="dir">
-        ${etapa < 3 ? `<button class="bt" id="avancar" ${etapa === 2 && !podeFaturar() ? 'disabled' : ''}>
-          ${etapa === 2 ? 'Faturamento' : 'Tratativa'} →</button>` : ''}
-        <button class="bt" id="cancelar">Cancelar</button>
-        <button class="bt p" id="salvar">Salvar</button>
+      <div id="recado">${recadoAtual}</div>
+      <div class="acoes-form">
+        ${etapa > 1 ? '<button class="bt" data-ir="' + (etapa - 1) + '">← Voltar</button>' : ''}
+        <div class="dir">
+          ${etapa < 3 ? `<button class="bt" id="avancar" ${etapa === 2 && !podeFaturar() ? 'disabled' : ''}>
+            ${etapa === 2 ? 'Faturamento' : 'Tratativa'} →</button>` : ''}
+          <button class="bt" id="cancelar">Cancelar</button>
+          <button class="bt p" id="salvar">Salvar</button>
+        </div>
       </div>
     </div>`;
 
@@ -1731,9 +1739,12 @@ function blocoRecebimentos(p) {
    repetir aqui a regra de la. */
 function ligaRecebimentos() {
   const mexe = async (id, pago) => {
-    await mudar('acordo_recebimento', id, pago
+    const gravado = await mudar('acordo_recebimento', id, pago
       ? { situacao: 'PAGO', data_pagamento: ISO(HOJE) }
       : { situacao: 'A VENCER', data_pagamento: null });
+    // Sem a linha de volta nao houve baixa: dizer que houve seria mentir.
+    if (!gravado || !gravado.length)
+      throw new Error('A baixa não chegou ao sistema. Tente de novo.');
     if (rascunho && rascunho.id) await releParcelas(rascunho.id);
     alerta(pago ? 'Recebimento baixado.' : 'Baixa desfeita.', 'ok');
   };
@@ -2118,13 +2129,36 @@ function avisaDuplicado() {
   return t;
 }
 
+/* Quais campos obrigatórios estão vazios, e onde eles moram. Saber ONDE é o
+   que permite levar a pessoa até eles — sem isso o sistema recusava a gravação
+   e deixava quem estava na etapa de Tratativa procurando um campo que só existe
+   na de Identificação. Foi assim que "recusei" virou "não salva". */
+function faltamNaIdentificacao() {
+  const r = rascunho, falta = [];
+  if (!String(r.processo || '').trim()) falta.push(['f-processo', 'número do processo']);
+  if (!r.advogado) falta.push(['f-advogado', 'advogado']);
+  if (!r.reu)      falta.push(['f-reu', 'réu']);
+  return falta;
+}
+
+/* Marca os campos que faltam e leva o primeiro deles para a vista. A marca sai
+   sozinha no próximo redesenho, que é quando a pessoa já mexeu neles. */
+function levaAoCampo(ids) {
+  ids.forEach(id => { const el = $(id); if (el) el.classList.add('falta'); });
+  const primeiro = $(ids[0]);
+  if (!primeiro) return;
+  primeiro.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  try { primeiro.focus({ preventScroll: true }); } catch { primeiro.focus(); }
+}
+
 function validaIdentificacao() {
-  const faltando = [];
-  if (!rascunho.processo) faltando.push('número do processo');
-  if (!rascunho.advogado) faltando.push('advogado');
-  if (!rascunho.reu)      faltando.push('réu');
-  if (faltando.length) {
-    alerta('Falta preencher: ' + faltando.join(', ') + '.', 'erro');
+  const falta = faltamNaIdentificacao();
+  if (falta.length) {
+    etapa = 1;
+    pintaForm();
+    alerta('Falta preencher: ' + falta.map(f => f[1]).join(', ')
+         + '. Levei você até os campos, marcados aqui na Identificação.', 'erro');
+    levaAoCampo(falta.map(f => f[0]));
     return false;
   }
   const igual = jaExiste(rascunho.processo, rascunho.id);
@@ -2295,7 +2329,10 @@ async function gravaVerbas(id, linhas) {
     Math.abs((+a.valor_total || 0) - (+linhas[i].valor_total || 0)) < 0.005);
   if (iguais) return;
 
-  if (antes.length) await api(`acordo_verba?tratativa_id=eq.${id}`, { method: 'DELETE' });
+  /* Grava as novas ANTES de apagar as velhas. Na ordem inversa — apagar e
+     depois gravar — uma queda de rede no meio deixava o acordo sem
+     discriminação nenhuma, e é dela que sai a comissão. Linha repetida aparece
+     na tela e se conserta em dois cliques; dado apagado não volta. */
   let novas = [];
   if (linhas.length) {
     novas = await criar('acordo_verba', linhas.map(x => ({
@@ -2306,7 +2343,14 @@ async function gravaVerbas(id, linhas) {
       valor_pago: 0, valor_em_aberto: 0, qtd_lancamentos: 0,
       origem_registro: 'sistema'
     }))) || [];
+    // Subiu menos linha do que devia: não apaga nada e avisa.
+    if (novas.length !== linhas.length)
+      throw new Error('A discriminação não subiu inteira. A anterior continua no '
+                    + 'sistema — clique em Salvar de novo.');
   }
+  if (antes.length)
+    await api(`acordo_verba?id=in.(${antes.map(a => a.id).join(',')})`, { method: 'DELETE' });
+
   VERBAS = VERBAS.filter(v => v.tratativa_id !== +id).concat(novas);
   desenha();
 }

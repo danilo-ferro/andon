@@ -232,7 +232,8 @@ function formPessoa(p) {
       ativo: $('f-ativo').checked,
       observacoes: $('f-obs').value.trim() || null
     };
-    p.id ? await mudar('pessoa', p.id, dados) : await criar('pessoa', dados);
+    const salvo = p.id ? await mudar('pessoa', p.id, dados) : await criar('pessoa', dados);
+    if (!provaDeGravacao(salvo)) return;
     await recarrega(`${nome} salvo.`, 'ok');
   });
 
@@ -351,6 +352,7 @@ function formParte(qual, x) {
     const dados = { nome, observacoes: $('f-obs').value.trim() || null };
     if (qual === 'reus') dados.documento = ($('f-doc').value || '').trim() || null;
     const salvo = x.id ? await mudar(c.tabela, x.id, dados) : await criar(c.tabela, dados);
+    if (!provaDeGravacao(salvo)) return;
     await recarrega(`${nome} salvo.`, 'ok');
     const id = x.id || (salvo && salvo[0] && salvo[0].id);
     if (id) formParte(qual, c.lista().find(y => y.id === id));
@@ -413,6 +415,16 @@ function alerta(msg, tipo) {
   $('aviso').innerHTML = `<div class="nota ${tipo === 'erro' ? '' : 'info'}"
     style="max-width:2100px;margin:16px auto 0;width:calc(100% - 40px)">${esc(msg)}</div>`;
   if (tipo === 'ok') setTimeout(() => { $('aviso').innerHTML = ''; }, 4000);
+}
+
+/* Dizer "salvo" exige a linha gravada na mão. Sem erro nao quer dizer com
+   sucesso: uma gravacao que nao encontra a linha volta 200 com lista vazia, e
+   anunciar sucesso ali e mentir para quem digitou. */
+function provaDeGravacao(salvo) {
+  if (salvo && salvo.length) return true;
+  alerta('A gravação não chegou ao sistema. Nada foi perdido — o que você '
+       + 'preencheu continua aqui. Tente salvar de novo.', 'erro');
+  return false;
 }
 
 /* Uma única porta para toda gravação: mostra o erro na tela em vez de

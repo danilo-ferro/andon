@@ -135,10 +135,20 @@
 
 .etapa{display:none}
 .etapa.on{display:block}
-.rodape-form{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap;align-items:center;
+/* Rodapé grudado na base da gaveta, com o recado logo acima dos botões: a
+   resposta do sistema chega no mesmo lugar em que o clique aconteceu. */
+.rodape-form{display:flex;flex-direction:column;gap:10px;margin-top:22px;
   position:sticky;bottom:0;padding:14px 0 4px;
-  background:linear-gradient(180deg,transparent,var(--gav-fade) 26%)}
+  background:linear-gradient(180deg,transparent,var(--gav-fade) 22%)}
+.acoes-form{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .rodape-form .dir{margin-left:auto;display:flex;gap:10px}
+#recado:empty{display:none}
+#recado .nota{margin:0}
+
+/* Campo obrigatório em branco, marcado depois de uma tentativa de gravar.
+   A marca some sozinha no redesenho seguinte, quando a pessoa já mexeu nele. */
+.inp.falta{border-color:var(--bad);background:var(--pr-bg)}
+.inp.falta:focus{border-color:var(--bad);background:var(--pr-bg)}
 .bt[disabled]{opacity:.4;cursor:not-allowed}
 
 /* ---- Contatos para esta tratativa ---- */

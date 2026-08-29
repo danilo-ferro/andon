@@ -92,7 +92,7 @@ ADVOGADOS = {
     'YUNES': 'Yunes Kaled', 'KALED': 'Kaled Kassem',
     'ISABELLE': 'Isabelle Alencar', 'GLEI': 'Gleisy Santana',
     'GLEISY': 'Gleisy Santana', 'DEBORAH': 'Déborah Lisboa',
-    'FELIPE': 'Felipe',
+    'FELIPE': 'Felipe Rodrigues',
 }
 # Sobrenome so entra aqui quando alguem informou. A planilha traz o primeiro
 # nome; completar por conta propria e inventar dado num sistema de registro.
@@ -172,6 +172,21 @@ for idac, linhas in por_id.items():
 
 ACORDO_POR_ID = {str(r['ID_ACORDO']).strip(): r for r in ACORDOS}
 
+# Trabalhista é do Dr. Felipe Rodrigues. Ele responde pelo processo, pelas
+# audiências e pelos fechamentos; a equipe de acordos não conduz esses casos,
+# só metrifica e lança os acordos fechados. Por isso a planilha vem sem
+# advogado neles: quem preenche a coluna anota o time interno.
+#
+# Dois sinais dizem que o processo é trabalhista, e no que já está carregado
+# eles concordam nos 13 casos: a coluna TIPO e o dígito do ramo da Justiça no
+# número CNJ (posição 14 igual a 5 = Justiça do Trabalho). Basta um.
+def e_trabalhista(tipo, processo):
+    if txt(tipo).upper() == 'TRABALHISTA':
+        return True
+    d = re.sub(r'[^0-9]', '', txt(processo))
+    return len(d) == 20 and d[13] == '5'
+
+
 def linha_tratativa(r, idac, acordo, principal=True):
     """Uma linha de tratativa.psv. `acordo` só vem preenchido na linha dona."""
     d = data(r.get('DATA'))
@@ -198,11 +213,16 @@ def linha_tratativa(r, idac, acordo, principal=True):
     # verdade. Sem isso toda tratativa antiga apareceria como recém-mexida.
     atualizacao = max([x for x in (d, dmin, dprot, drec) if x] or [''])
 
+    tipo = de_lista(r.get('TIPO') or (acordo or {}).get('TIPO'), None, TIPO, 'tipo')
+    adv = pessoa(r.get('ADV'), ADVOGADOS, 'advogado')
+    if not adv and e_trabalhista(tipo, r.get('PROCESSO')):
+        adv = 'Felipe Rodrigues'
+
     return [
         idac,
         de_lista(r.get('FASE'), FASE, None, 'fase'),
         txt(r.get('ESTADO')).upper()[:2],
-        pessoa(r.get('ADV'), ADVOGADOS, 'advogado'),
+        adv,
         txt(r.get('PROCESSO')),
         txt(r.get('AUTOR')),
         txt(r.get('RÉU')),
@@ -212,7 +232,7 @@ def linha_tratativa(r, idac, acordo, principal=True):
         d,
         de_lista(r.get('STATUS'), None, STATUS, 'status', 'AGUARDANDO RETORNO'),
         txt(r.get('OBS')),
-        de_lista(r.get('TIPO') or (acordo or {}).get('TIPO'), None, TIPO, 'tipo'),
+        tipo,
         de_lista(r.get('PRODUTO') or (acordo or {}).get('PRODUTO'), PRODUTO, None, 'produto'),
         dmin, valor, dprot, prev, recebido, drec, atualizacao,
         parcelado, qtd,

@@ -375,7 +375,7 @@ tudo caiu de uma vez — em acordo parcelado, quem recebe é a parcela.
 ## Recusar não pode parecer não funcionar
 
 "Em alguns casos a tratativa não salva" tinha uma causa concreta: **19
-tratativas** estão sem advogado ou sem réu, e **7** acordos fechados estão sem
+tratativas** estavam sem advogado ou sem réu, e **7** acordos fechados estão sem
 discriminação. São campos obrigatórios, então a gravação era recusada — só que
 a recusa não levava a lugar nenhum.
 
@@ -393,6 +393,36 @@ em vermelho o que está vazio, rola até ele e põe o cursor lá.
 formulário e foi para o rodapé, que é grudado na base da gaveta, logo acima dos
 botões. No topo, numa tratativa longa, ela ficava fora da vista de quem estava
 com o Salvar embaixo — o sistema explicava e ninguém lia.
+
+## Trabalhista é do Dr. Felipe Rodrigues
+
+Das 19 tratativas travadas por campo obrigatório vazio, **13 eram todas o mesmo
+caso**: processo trabalhista sem advogado. Não era esquecimento. O trabalhista
+não passa pela equipe de acordos — quem responde pelo processo, pelas audiências
+e pelos fechamentos é o **Dr. Felipe Rodrigues**; a equipe só metrifica e lança
+o acordo depois de fechado. Quem preenchia a planilha anotava o time interno, e
+nesses casos não havia time interno para anotar.
+
+Duas leituras independentes concordam sobre quais são os 13: a coluna `tipo` e o
+**14º dígito do número CNJ**, que é o ramo da Justiça — `5` é a do Trabalho.
+Nenhum deles tinha advogado, então não houve nada para sobrescrever e nenhuma
+escolha a fazer. O cadastro dele existia com o primeiro nome só, inativo; virou
+`Felipe Rodrigues` e ativo — o sobrenome entrou porque o Danilo informou.
+
+Daqui para a frente o campo se preenche sozinho: marcar o tipo **Trabalhista**,
+ou digitar um número da Justiça do Trabalho, já traz o nome dele. Quem já estiver
+no campo nunca é trocado, e dá para escolher outro se um dia houver exceção. A
+mesma regra entrou no extrator, para a próxima carga da planilha não desfazer.
+
+Os operadores continuam vazios nesses 13, e é o certo: o ranking por operador
+ignora tratativa sem operador, então o trabalhista não entra na produtividade de
+ninguém — mas continua contando no total de acordos fechados, que é justamente o
+que a equipe metrifica.
+
+Sobram **6 tratativas sem réu**, todas de Justiça estadual e todas já com Max
+Canaverde ou Mariah Aguiar como advogado. Essas ficam esperando: quem é o réu de
+cada uma é informação que ninguém passou, e chutar num sistema de registro é
+inventar dado.
 
 ## Gravação que não pode se perder no meio
 
@@ -504,7 +534,12 @@ significado não dependia dele.
    com o ADVBox — R$ 82 mil — e é inteira por falta de base, não por erro.
 3. Acertar os sete pares de processo com número divergente. A tela de
    Financeiro lista todos, lado a lado.
-4. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
+4. Dizer quem é o réu das seis tratativas que ainda estão sem ele —
+   `0001623-82.2026.8.26.0198`, `0002178-96.2026.8.26.0005`,
+   `0003955-80.2026.8.26.0405`, `0004807-48.2026.8.26.0068`,
+   `1002155-82.2025.8.26.0001` e `1034655-35.2024.8.26.0003`. São as últimas
+   travadas por campo obrigatório vazio, e é o único dado que falta nelas.
+5. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
    é o único número que falta para o repasse calcular sozinho.
-5. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
+6. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
    assim que houver histórico de expedição e recebimento no mesmo lugar.

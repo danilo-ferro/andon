@@ -1997,7 +1997,12 @@ function ligaForm() {
     const el = $(id); if (el) el.onchange = pintaContatos;
   });
   const proc = $('f-processo');
-  if (proc) { proc.oninput = avisaDuplicado; proc.onchange = avisaDuplicado; avisaDuplicado(); }
+  if (proc) {
+    const aoDigitar = () => { avisaDuplicado(); advogadoDoTrabalhista(); };
+    proc.oninput = aoDigitar; proc.onchange = aoDigitar; aoDigitar();
+  }
+  const tp = $('f-tipo');
+  if (tp) tp.onchange = advogadoDoTrabalhista;
   // Mudar o status troca os campos que a etapa mostra: redesenha.
   const st2 = $('f2-status');
   if (st2) st2.onchange = () => { coleta(); pintaForm(); };
@@ -2115,7 +2120,10 @@ function avisaDuplicado() {
   const cx = $('aviso-duplicado');
   if (!cx) return null;
   const el = $('f-processo');
-  const t = jaExiste(el ? el.value : rascunho.processo, rascunho.id);
+  // A gaveta pode ter sido fechada com o formulário ainda na tela; sem rascunho
+  // isto estourava e derrubava o resto do que estava ligado ao campo.
+  const r = rascunho || {};
+  const t = jaExiste(el ? el.value : r.processo, r.id);
   if (!t) { cx.innerHTML = ''; return null; }
   const f = fase(t.status);
   cx.innerHTML = `<div class="ja-existe">
@@ -2127,6 +2135,30 @@ function avisaDuplicado() {
   </div>`;
   $('abrir-existente').onclick = () => { esqueceRascunho(); abreForm(t); };
   return t;
+}
+
+/* Todo processo trabalhista é do Dr. Felipe Rodrigues: ele responde pelo
+   processo, pelas audiências e pelos fechamentos. A equipe de acordos não
+   conduz esses casos — só metrifica e lança os acordos fechados —, e por isso
+   ninguém preenchia o advogado neles. Agora quem marcar o tipo, ou digitar um
+   número da Justiça do Trabalho, já encontra o campo preenchido, e pode trocar
+   se algum dia houver exceção. Nunca escreve por cima de quem já está lá. */
+const FELIPE = 'Felipe Rodrigues';
+
+/* O 14º dígito do número CNJ é o ramo da Justiça; 5 é a do Trabalho. */
+const daJusticaDoTrabalho = p => {
+  const d = chaveProcesso(p);
+  return d.length === 20 && d[13] === '5';
+};
+
+function advogadoDoTrabalhista() {
+  const tipo = $('f-tipo'), adv = $('f-advogado'), proc = $('f-processo');
+  if (!tipo || !adv || adv.value) return;
+  if (tipo.value !== 'TRABALHISTA' && !daJusticaDoTrabalho(proc ? proc.value : '')) return;
+  // Se o cadastro dele estiver inativo ele nem aparece na lista; aí o campo
+  // fica vazio mesmo, e a checagem de obrigatórios cobra — melhor do que
+  // gravar um nome que o cadastro não reconhece.
+  if ([...adv.options].some(o => o.value === FELIPE)) adv.value = FELIPE;
 }
 
 /* Quais campos obrigatórios estão vazios, e onde eles moram. Saber ONDE é o

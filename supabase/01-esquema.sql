@@ -375,6 +375,27 @@ create table feriado (
   unique (data, abrangencia, uf)
 );
 
+-- Registro das tratativas excluidas. Num sistema de registro, apagar sem
+-- deixar rastro e perder historico — e esta equipe ja viu tratativa sumir sem
+-- saber por que. Guarda a linha inteira e os filhos dela em jsonb, entao da
+-- para reconstruir o que foi apagado por engano. Quem escreve aqui e so a
+-- funcao excluir_tratativa.
+create table tratativa_excluida (
+  id            bigint generated always as identity primary key,
+  tratativa_id  bigint      not null,
+  processo      text,
+  autor         text,
+  reu           text,
+  status        text,
+  valor         numeric(14,2),
+  dados         jsonb       not null,                 -- a linha, como estava
+  recebimentos  jsonb       not null default '[]'::jsonb,
+  verbas        jsonb       not null default '[]'::jsonb,
+  motivo        text,
+  excluida_por  text        not null,
+  excluida_em   timestamptz not null default now()
+);
+
 -- =====================================================================
 -- 7. INDICES
 -- =====================================================================
@@ -416,6 +437,8 @@ create index tratativa_processo_idx               on tratativa (processo);
 create index tratativa_produto_idx                on tratativa (produto);
 create index tratativa_protocolo_idx              on tratativa (data_protocolo);
 create index tratativa_status_idx                 on tratativa (status);
+create index tratativa_excluida_processo_ix       on tratativa_excluida (processo);
+create index tratativa_excluida_em_ix             on tratativa_excluida (excluida_em desc);
 
 -- As duas travas que impedem duplicidade de tratativa, cada uma contra um
 -- acidente diferente:
@@ -469,6 +492,66 @@ create or replace function e_gestor() returns boolean
   select exists (select 1 from pessoa g
                  where g.email = (auth.jwt() ->> 'email') and 'gestor' = any(g.papeis))
 $$;
+
+-- Canal estreito de escrita: excluir tratativa e a unica porta, porque um
+-- DELETE cru faz dois estragos silenciosos.
+--
+-- O primeiro e financeiro: acordo_recebimento.tratativa_id e ON DELETE SET
+-- NULL, entao os lancamentos da tratativa apagada ficariam soltos. Sumiriam da
+-- tela de Financeiro, que junta com tratativa, e continuariam somando para
+-- sempre em vw_verba_mes, que nao junta. Dinheiro contado sem dono e sem tela
+-- que chegue nele e o pior erro que esta base pode ter.
+--
+-- O segundo e de registro: apagar sem rastro e perder historico. Aqui a copia
+-- inteira fica guardada antes, e da para reconstruir.
+--
+-- Verba e parcela caem em cascata pela propria chave estrangeira. Tudo numa
+-- transacao: ou as tres coisas acontecem, ou nenhuma.
+create or replace function excluir_tratativa(p_id bigint, p_motivo text default null)
+  returns jsonb
+  language plpgsql security definer set search_path to 'public','pg_temp' as $$
+declare
+  v_email text := auth.jwt() ->> 'email';
+  v_t     tratativa%rowtype;
+  v_receb jsonb;
+  v_verb  jsonb;
+  v_reg   bigint;
+begin
+  if not e_gestor() then
+    raise exception 'Só um gestor pode excluir uma tratativa.' using errcode = '42501';
+  end if;
+
+  select * into v_t from tratativa where id = p_id;
+  if not found then
+    raise exception 'Esta tratativa não está mais no sistema — talvez já tenha sido excluída.'
+      using errcode = 'P0002';
+  end if;
+
+  select coalesce(jsonb_agg(to_jsonb(r) order by r.id), '[]'::jsonb) into v_receb
+    from acordo_recebimento r where r.tratativa_id = p_id;
+  select coalesce(jsonb_agg(to_jsonb(v) order by v.id), '[]'::jsonb) into v_verb
+    from acordo_verba v where v.tratativa_id = p_id;
+
+  insert into tratativa_excluida (
+      tratativa_id, processo, autor, reu, status, valor,
+      dados, recebimentos, verbas, motivo, excluida_por)
+    values (
+      v_t.id, v_t.processo, v_t.autor, v_t.reu, v_t.status, v_t.valor,
+      to_jsonb(v_t), v_receb, v_verb,
+      nullif(btrim(coalesce(p_motivo, '')), ''),
+      coalesce(nullif(btrim(coalesce(v_email, '')), ''), 'desconhecido'))
+    returning id into v_reg;
+
+  delete from acordo_recebimento where tratativa_id = p_id;
+  delete from tratativa          where id = p_id;
+
+  return jsonb_build_object(
+    'registro',     v_reg,
+    'tratativa_id', p_id,
+    'processo',     v_t.processo,
+    'recebimentos', jsonb_array_length(v_receb),
+    'verbas',       jsonb_array_length(v_verb));
+end $$;
 
 -- Canal estreito de escrita: a pessoa muda o proprio tema e nada mais. Sem
 -- isto seria preciso abrir `pessoa` para update, o que abriria papeis junto.
@@ -1234,6 +1317,17 @@ create or replace view vw_verba_mes as
 create or replace view vw_ranking_operador as
   select * from ranking_operador(null::date, null::date);
 
+-- A atualizacao de 30 segundos so enxerga o que mudou por updated_at, e linha
+-- apagada nao tem updated_at. Sem isto, a tratativa que o gestor excluiu
+-- ficaria na tela de todo mundo ate alguem recarregar a pagina — e quem
+-- tentasse salvar receberia "a gravacao nao chegou ao sistema", sem entender.
+-- A tabela de exclusoes e so do gestor, porque guarda copia integral de dado de
+-- cliente; o id e a hora nao sao dado de cliente nenhum, e e disso que a tela
+-- precisa. Por isso esta view existe: para expor menos do que a tabela.
+create or replace view vw_tratativa_excluida as
+  select tratativa_id, excluida_em
+    from tratativa_excluida;
+
 -- ---- conciliacao com o ADVBox ----
 -- O ANDON nao existe so para ter um numero: enquanto as bases forem varias,
 -- ele existe para dizer exatamente onde elas discordam.
@@ -1354,7 +1448,7 @@ begin
   -- e de papel na tela, nao de tabela — nesta equipe todo mundo que entra
   -- mexe em tratativa, cadastro e financeiro.
   foreach t in array array[
-    'execucao','tratativa','acordo_parcela','acordo_verba','acordo_recebimento',
+    'execucao','acordo_parcela','acordo_verba','acordo_recebimento',
     'acordo_faturado','acordo_trabalhista','advbox_lancamento',
     'parte_adversa','escritorio_adverso','parte_escritorio','contato','feriado']
   loop
@@ -1371,6 +1465,21 @@ begin
                       for all to authenticated using (e_gestor()) with check (e_gestor())$f$, t);
   end loop;
 end $$;
+
+-- Tratativa fica de fora do `for all` acima de proposito: `all` inclui DELETE,
+-- e apagar tratativa nao pode ser um DELETE cru — ver excluir_tratativa. Aqui
+-- ficam so inserir e atualizar; apagar nao tem politica nenhuma, entao a unica
+-- porta e a funcao.
+create policy inserir_tratativa   on tratativa for insert to authenticated
+  with check (true);
+create policy atualizar_tratativa on tratativa for update to authenticated
+  using (true) with check (true);
+
+-- O registro de exclusoes guarda copia integral de dado de cliente: so gestor
+-- le. Ninguem escreve nele pela API — quem escreve e excluir_tratativa.
+alter table tratativa_excluida enable row level security;
+create policy leitura_tratativa_excluida on tratativa_excluida
+  for select to authenticated using (e_gestor());
 
 -- Views herdam a permissao de quem consulta, nunca a de quem as criou.
 alter view vw_plantado             set (security_invoker = on);
@@ -1392,6 +1501,17 @@ alter view vw_conciliacao_processo set (security_invoker = on);
 alter view vw_conciliacao_par      set (security_invoker = on);
 alter view advbox_resumo           set (security_invoker = on);
 alter view advbox_mes              set (security_invoker = on);
+
+-- A unica com security_invoker OFF, e de proposito: ela existe justamente para
+-- mostrar menos do que a tabela. Com invoker ligado herdaria a politica de
+-- gestor e devolveria vazio para o resto da equipe, que e quem mais precisa
+-- saber que uma tratativa saiu da tela.
+alter view vw_tratativa_excluida   set (security_invoker = off);
+revoke all    on vw_tratativa_excluida from public, anon;
+grant  select on vw_tratativa_excluida to authenticated;
+
+revoke all     on function excluir_tratativa(bigint, text) from public, anon;
+grant  execute on function excluir_tratativa(bigint, text) to authenticated;
 
 -- =====================================================================
 -- 12. CONFIGURACAO INICIAL

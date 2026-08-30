@@ -157,6 +157,9 @@ Papel é definido na tela de Equipe, não no login: mudar o papel de alguém nã
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
 
+Uma coisa só é do gestor dentro de Acordos: **excluir tratativa**. Todo o resto
+— criar, editar, dar baixa, curar réus e escritórios — é de quem entra.
+
 ## O dinheiro depois do acordo fechado
 
 Um acordo nunca foi um número só. R$ 5.300 pode ser R$ 3.000 de danos morais do
@@ -423,6 +426,47 @@ Sobram **6 tratativas sem réu**, todas de Justiça estadual e todas já com Max
 Canaverde ou Mariah Aguiar como advogado. Essas ficam esperando: quem é o réu de
 cada uma é informação que ninguém passou, e chutar num sistema de registro é
 inventar dado.
+
+## Excluir uma tratativa
+
+Apagar tratativa não podia ser um `DELETE` e pronto, por dois motivos concretos.
+
+**O primeiro é dinheiro.** `acordo_recebimento.tratativa_id` é `ON DELETE SET
+NULL`. Um DELETE cru deixaria os lançamentos financeiros da tratativa soltos:
+sumiriam da tela de Financeiro, que junta com `tratativa`, e continuariam
+somando para sempre em `vw_verba_mes`, que não junta. Dinheiro contado sem dono
+e sem tela que chegue nele é o pior erro que esta base pode ter.
+
+**O segundo é registro.** Apagar sem rastro é perder histórico, e esta equipe já
+viu tratativa sumir sem saber por quê.
+
+Então a exclusão passa por uma porta só, a função `excluir_tratativa`: ela
+guarda uma cópia inteira da linha e dos filhos dela em `tratativa_excluida`,
+apaga os lançamentos junto e só então apaga a tratativa — tudo numa transação.
+`tratativa` deixou de ter política de DELETE: mesmo quem souber montar a
+chamada não consegue apagar por fora.
+
+**É do gestor.** Não por hierarquia: é que aqui apagar leva junto o dinheiro
+lançado. Quem não é gestor não vê o botão, e o banco recusa mesmo que veja — a
+permissão vive na função, não só na tela.
+
+**Um clique nunca apaga.** O botão abre uma confirmação que diz exatamente o
+que vai embora: o processo, as partes, o valor, quantos lançamentos financeiros
+(e quantos já baixados) e quantas linhas de discriminação. Tem campo de motivo,
+opcional, e fica gravado quem excluiu e quando.
+
+**A exclusão chega nas outras telas.** A atualização de 30 segundos só enxerga o
+que mudou por `updated_at`, e linha apagada não tem `updated_at` — a tratativa
+excluída ficaria na tela de todo mundo até alguém recarregar a página. A view
+`vw_tratativa_excluida` expõe só o id e a hora (não o conteúdo, que é do gestor)
+e é por ela que a remoção viaja. Se a gaveta estiver aberta justamente na que
+sumiu, ela fecha explicando o que houve, e o que a pessoa tinha digitado fica
+guardado no navegador.
+
+De quebra: um `403` do banco não é mais traduzido para "sua sessão expirou". O
+banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
+pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
+não dizer nada.
 
 ## Gravação que não pode se perder no meio
 

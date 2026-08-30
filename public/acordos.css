@@ -145,6 +145,22 @@
 #recado:empty{display:none}
 #recado .nota{margin:0}
 
+/* ---- Excluir tratativa ----
+   O botão fica encostado à esquerda, longe do Salvar, e em vermelho. Um clique
+   nele não apaga nada: abre a confirmação, que diz o que vai embora junto. */
+.acoes-form .perigo{color:var(--bad);border-color:var(--pr-bd)}
+.acoes-form .perigo:hover{background:var(--pr-bg)}
+.acoes-form .perigo:disabled{opacity:.55;cursor:default}
+#confirma-exclusao:empty{display:none}
+.confirma{border:1px solid var(--pr-bd);background:var(--pr-bg);border-radius:10px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.confirma .tit{font-size:12.5px;font-weight:600;color:var(--pr-tx)}
+.confirma .dado{font-size:11.5px;color:var(--txt-2);line-height:1.6}
+.confirma .campo{margin:2px 0 0}
+.acoes-confirma{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.acoes-confirma .bt{font-size:11.5px;padding:5px 11px}
+.acoes-confirma .perigo{color:var(--bad);border-color:var(--pr-bd);font-weight:600}
+
 /* Campo obrigatório em branco, marcado depois de uma tentativa de gravar.
    A marca some sozinha no redesenho seguinte, quando a pessoa já mexeu nele. */
 .inp.falta{border-color:var(--bad);background:var(--pr-bg)}

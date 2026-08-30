@@ -42,9 +42,19 @@ async function api(caminho, opcoes, jaRenovou) {
     const novo = await SESSAO.renovar().catch(() => null);
     if (novo) return api(caminho, opcoes, true);
   }
-  if (r.status === 401 || r.status === 403) throw new Error(logado()
-    ? 'Sua sessão expirou. Entre de novo para salvar.'
-    : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
+  if (r.status === 401 || r.status === 403) {
+    /* 403 nem sempre é sessão vencida: o banco também recusa por permissão, e
+       aí ele diz exatamente o porquê ("só um gestor pode excluir…"). Trocar
+       isso por "sua sessão expirou" manda a pessoa sair e entrar de novo para
+       descobrir que continua sem poder. */
+    const dito = await r.text().then(x => { try { return JSON.parse(x).message || ''; }
+                                            catch { return ''; } }).catch(() => '');
+    const deSessao = /jwt|token|expirad|expired|claim|credential|autentic|authentic|unauthorized|api ?key/i;
+    if (r.status === 403 && dito && !deSessao.test(dito)) throw new Error(dito);
+    throw new Error(logado()
+      ? 'Sua sessão expirou. Entre de novo para salvar.'
+      : 'Sessão não encontrada. Recarregue a página para entrar de novo.');
+  }
   if (!r.ok) {
     const bruto = await r.text();
     // O Postgres devolve um JSON tecnico. Sozinho, ele nao diz a ninguem o
@@ -1043,6 +1053,42 @@ function marcaSincronia() {
   ULTIMA_SINC = maiorUpdated(TRAT, maiorUpdated(RECEB, maiorUpdated(VERBAS, null)));
 }
 
+/* Quando a sincronia tem algo mais importante a dizer do que a contagem. */
+let recadoDaSincronia = null;
+
+/* Tira da tela o que outra pessoa excluiu. Devolve quantas linhas realmente
+   saíram — a consulta pode repetir exclusões antigas, e repetir não é notícia.
+   Se a gaveta estiver aberta justamente na que sumiu, ela fecha avisando: pior
+   do que perder a tela é continuar digitando numa tratativa que não existe. */
+function tiraExcluidas(linhas) {
+  const ids = new Set((linhas || []).map(x => +x.tratativa_id));
+  if (!ids.size) return 0;
+  const antes = TRAT.length;
+  TRAT = TRAT.filter(t => !ids.has(+t.id));
+  const n = antes - TRAT.length;
+  if (!n) return 0;
+  RECEB  = RECEB .filter(x => !ids.has(+x.tratativa_id));
+  VERBAS = VERBAS.filter(v => !ids.has(+v.tratativa_id));
+  if (rascunho && rascunho.id && ids.has(+rascunho.id)) {
+    const p = rascunho.processo || '';
+    // Guarda sem o id: a linha não existe mais, então o que sobra só pode
+    // voltar como tratativa nova.
+    guardaRascunho({ ...rascunho, id: undefined });
+    fechaGaveta();
+    /* Guardado para o botão Atualizar não cobrir isto com o "3 registros
+       mudaram" dele. Quem teve a gaveta fechada na cara precisa saber por quê,
+       não quantas linhas vieram. */
+    recadoDaSincronia = {
+      msg: `A tratativa ${p} foi excluída do sistema por outra pessoa enquanto`
+         + ' você estava com ela aberta. O que você tinha digitado ficou guardado'
+         + ' neste computador — recarregue a página para abrir de volta.',
+      tipo: 'erro'
+    };
+    alerta(recadoDaSincronia.msg, recadoDaSincronia.tipo);
+  }
+  return n;
+}
+
 function funde(lista, novas) {
   const mudou = [];
   (novas || []).forEach(n => {
@@ -1067,12 +1113,19 @@ async function sincroniza(agora) {
   }
   sincronizando = (async () => {
     const desde = encodeURIComponent(ULTIMA_SINC);
-    const [t, rc] = await Promise.all([
+    const [t, rc, ex] = await Promise.all([
       ler('tratativa',          `select=*&updated_at=gt.${desde}&order=updated_at.asc&limit=500`),
-      ler('acordo_recebimento', `select=*&updated_at=gt.${desde}&order=updated_at.asc&limit=500`)
+      ler('acordo_recebimento', `select=*&updated_at=gt.${desde}&order=updated_at.asc&limit=500`),
+      /* Linha apagada não tem `updated_at` para mudar, então ela nunca chegaria
+         por aqui: quem estivesse com a aba aberta continuaria vendo — e
+         editando — uma tratativa que não existe mais. O registro de exclusão é
+         o único jeito de a remoção viajar até as outras telas. */
+      ler('vw_tratativa_excluida', `select=tratativa_id&excluida_em=gt.${desde}&limit=500`)
+        .catch(() => [])
     ]);
     const ids = funde(TRAT, t);
     funde(RECEB, rc);
+    const sumiram = tiraExcluidas(ex);
 
     /* Verba e recebimento são apagados e regravados a cada salvamento, então
        o que sumiu não volta por `updated_at` — para as tratativas que mudaram,
@@ -1090,7 +1143,7 @@ async function sincroniza(agora) {
       RECEB  = RECEB .filter(r => !dentro.has(r.tratativa_id)).concat(rec || []);
     }
 
-    const total = ids.length + (rc || []).length;
+    const total = ids.length + (rc || []).length + sumiram;
     if (total) {
       marcaSincronia();
       desenha();
@@ -1122,8 +1175,10 @@ async function atualizaAgora() {
   try {
     const n = await sincroniza(true);
     vejoSeMudouAVersao();
-    alerta(n ? `Atualizado: ${n} ${n === 1 ? 'registro mudou' : 'registros mudaram'}.`
-             : 'Tudo em dia — nada mudou desde a última atualização.', 'ok');
+    if (recadoDaSincronia) { const r = recadoDaSincronia; recadoDaSincronia = null;
+      alerta(r.msg, r.tipo); }
+    else alerta(n ? `Atualizado: ${n} ${n === 1 ? 'registro mudou' : 'registros mudaram'}.`
+                  : 'Tudo em dia — nada mudou desde a última atualização.', 'ok');
   } finally {
     if (bt) bt.classList.remove('girando');
   }
@@ -1497,9 +1552,11 @@ function pintaForm() {
   $('gavC').innerHTML = `
     ${etapaIdentificacao()}${etapaTratativa()}${etapaFaturamento()}
     <div class="rodape-form">
+      <div id="confirma-exclusao"></div>
       <div id="recado">${recadoAtual}</div>
       <div class="acoes-form">
         ${etapa > 1 ? '<button class="bt" data-ir="' + (etapa - 1) + '">← Voltar</button>' : ''}
+        ${podeExcluir(rascunho) ? '<button class="bt perigo" id="excluir">Excluir tratativa</button>' : ''}
         <div class="dir">
           ${etapa < 3 ? `<button class="bt" id="avancar" ${etapa === 2 && !podeFaturar() ? 'disabled' : ''}>
             ${etapa === 2 ? 'Faturamento' : 'Tratativa'} →</button>` : ''}
@@ -1992,6 +2049,8 @@ function ligaForm() {
   });
   $('cancelar').onclick = () => { esqueceRascunho(); fechaGaveta(); };
   $('salvar').onclick = () => protege(salvar);
+  const ex = $('excluir');
+  if (ex) ex.onclick = pedeConfirmacaoExclusao;
 
   ['f-canal', 'f-reu', 'f-escritorio'].forEach(id => {
     const el = $(id); if (el) el.onchange = pintaContatos;
@@ -2402,6 +2461,76 @@ async function releParcelas(id) {
     if (rascunho && rascunho.id === nova.id) { rascunho = { ...nova }; pintaForm(); }
   }
   desenha();
+}
+
+/* ---------- excluir uma tratativa ----------
+   Apagar é do gestor. Não por hierarquia: é que aqui apagar leva junto o
+   dinheiro lançado, e desfazer depende de alguém lembrar o que havia na linha.
+   Quem não é gestor não vê o botão, e o banco recusa mesmo que veja — a
+   permissão vive na função `excluir_tratativa`, não só nesta tela.
+
+   Antes de apagar, a tela mostra exatamente o que vai embora: o processo, as
+   partes, o valor, quantos lançamentos financeiros e quantas linhas de
+   discriminação. Um clique só nunca apaga nada. */
+const souGestor = () =>
+  !!(SESSAO && SESSAO.gestor) || ((sessao && sessao.papeis) || []).includes('gestor');
+const podeExcluir = r => !!(r && r.id && souGestor());
+
+function pedeConfirmacaoExclusao() {
+  const r = rascunho, cx = $('confirma-exclusao');
+  if (!cx || !podeExcluir(r)) return;
+  const receb = RECEB.filter(x => x.tratativa_id === r.id);
+  const verb  = verbasDe(r.id);
+  const pagos = receb.filter(x => x.situacao === 'PAGO');
+  const junto = [];
+  if (receb.length) junto.push(`${receb.length} lançamento${receb.length > 1 ? 's' : ''} no Financeiro`
+    + (pagos.length ? ` (${pagos.length} já ${pagos.length > 1 ? 'baixados' : 'baixado'})` : ''));
+  if (verb.length) junto.push(`${verb.length} linha${verb.length > 1 ? 's' : ''} de discriminação`);
+
+  cx.innerHTML = `<div class="confirma">
+    <div class="tit">Excluir esta tratativa do sistema?</div>
+    <div class="dado">${esc(r.processo || 'sem número')} · ${esc(r.autor || 'sem autor')}
+      × ${esc(r.reu || '—')} · ${esc(r.status || '—')}${r.valor ? ' · ' + brl2(r.valor) : ''}</div>
+    ${junto.length ? `<div class="dado">Vai junto: ${esc(junto.join(' e '))}.</div>` : ''}
+    <div class="campo"><label>Motivo (opcional)</label>
+      ${entrada('motivo-exclusao', 'text', '', 'placeholder="lançamento em duplicidade, aberto por engano…"')}</div>
+    <div class="dado">Fica registrado quem excluiu, quando e uma cópia inteira do
+      que havia aqui — dá para reconstruir se for engano.</div>
+    <div class="acoes-confirma">
+      <button type="button" class="bt" id="nao-excluir">Não excluir</button>
+      <button type="button" class="bt perigo" id="excluir-mesmo">Excluir definitivamente</button>
+    </div>
+  </div>`;
+  cx.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  $('nao-excluir').onclick = () => { cx.innerHTML = ''; };
+  $('excluir-mesmo').onclick = () => protege(excluiTratativa);
+}
+
+async function excluiTratativa() {
+  const r = rascunho;
+  if (!podeExcluir(r)) return;
+  const el = $('motivo-exclusao');
+  const bt = $('excluir-mesmo');
+  if (bt) { bt.disabled = true; bt.textContent = 'Excluindo…'; }
+  let saida;
+  try {
+    saida = await api('rpc/excluir_tratativa', {
+      method: 'POST',
+      body: JSON.stringify({ p_id: r.id, p_motivo: el ? el.value : null })
+    });
+  } catch (e) {
+    if (bt) { bt.disabled = false; bt.textContent = 'Excluir definitivamente'; }
+    throw e;
+  }
+  // Tira da tela sem esperar a próxima leitura: quem apagou tem que ver sumir.
+  const id = +r.id;
+  TRAT   = TRAT.filter(t => t.id !== id);
+  RECEB  = RECEB.filter(x => x.tratativa_id !== id);
+  VERBAS = VERBAS.filter(v => v.tratativa_id !== id);
+  esqueceRascunho(); fechaGaveta(); desenha();
+  const n = (saida && saida.recebimentos) || 0;
+  alerta(`Tratativa ${r.processo || ''} excluída${n ? `, com ${n} lançamento${n > 1 ? 's' : ''} do Financeiro` : ''}.`
+    + ' O registro da exclusão ficou guardado.', 'ok');
 }
 
 /* ---------- resgate do que foi digitado ----------

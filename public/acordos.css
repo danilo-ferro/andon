@@ -243,10 +243,19 @@
 .ja-existe .dado{font-size:11.5px;color:var(--txt-2);line-height:1.6}
 .ja-existe .bt{align-self:flex-start;font-size:11.5px;padding:5px 11px}
 
-/* Acordo que ficou sem discriminação: um clique abre e resolve. */
+/* Tratativa que ficou faltando alguma coisa: um clique abre e resolve.
+   É um <div> e não um <button> porque o número do processo traz dentro o botão
+   de copiar, e botão dentro de botão o navegador não aceita: ele fechava o de
+   fora ali, e o nome e o valor saíam do lado de fora da linha — sem clique e
+   fora do lugar. */
 .pendente{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;
-  padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surf-1);
-  font-size:11.5px;transition:.14s}
+  cursor:pointer;padding:6px 9px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surf-1);font-size:11.5px;transition:.14s}
+.pendente:focus-visible{outline:2px solid var(--s4);outline-offset:1px}
 .pendente:hover{border-color:var(--line-2);background:var(--surf-2)}
 .pendente .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:var(--txt-2)}
+/* O que falta na tratativa pode ser um campo ou treze: corta no fim da linha em
+   vez de empurrar o processo e o autor para fora do botão. */
+.pendente .falta-lista{flex:1.4;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;text-align:right;color:var(--warn);font-weight:500}

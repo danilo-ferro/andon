@@ -157,6 +157,9 @@ Papel é definido na tela de Equipe, não no login: mudar o papel de alguém nã
 exige recriar conta. Quem sai do escritório vira **inativo** — some dos
 seletores e o histórico continua com dono.
 
+Uma coisa só é do gestor dentro de Acordos: **excluir tratativa**. Todo o resto
+— criar, editar, dar baixa, curar réus e escritórios — é de quem entra.
+
 ## O dinheiro depois do acordo fechado
 
 Um acordo nunca foi um número só. R$ 5.300 pode ser R$ 3.000 de danos morais do
@@ -423,6 +426,90 @@ Sobram **6 tratativas sem réu**, todas de Justiça estadual e todas já com Max
 Canaverde ou Mariah Aguiar como advogado. Essas ficam esperando: quem é o réu de
 cada uma é informação que ninguém passou, e chutar num sistema de registro é
 inventar dado.
+
+## A Identificação inteira é obrigatória
+
+Os treze campos da primeira etapa passaram a ser exigidos — para lançar uma
+tratativa nova e para salvar qualquer alteração numa que já existe:
+
+| | |
+|---|---|
+| tipo · fase processual · estado (UF) | advogado · produto / tese · nº do processo |
+| autor (cliente) · réu · escritório (adv. do réu) | forma de contato · operador responsável |
+| data da 1ª tentativa · status | |
+
+Não é burocracia: tratativa pela metade não mede nada. Sem operador ela some do
+ranking; sem produto, do recorte por tese; sem fase, do funil. O número que
+sobra no painel continua aparecendo — e passa por verdade.
+
+**O tamanho do buraco.** Enquanto o preenchimento foi opcional, **1.646 das
+1.933 tratativas** ficaram com pelo menos um campo em branco. Os dois maiores
+são `tipo` (1.608 vazios) e `produto` (1.617). Procurei recuperá-los das outras
+tabelas — faturado, recebimento, ADVBox — e não há de onde: essa informação
+nunca entrou. Só 287 tratativas estão completas hoje.
+
+Dessas 1.646, **1.208 já estão encerradas** e ninguém vai reabrir para preencher
+a tese de um caso de 2024. As que importam são as **438 ainda em andamento**: a
+próxima vez que alguém mexer em cada uma, vai ter que completá-la. É trabalho
+real, e é o preço de a base voltar a fechar.
+
+**Três coisas para isso não virar emboscada.** A recusa leva ao campo, como já
+fazia — muda para a Identificação, marca em vermelho tudo o que está vazio e
+rola até o primeiro. Tratativa incompleta agora **abre direto na Identificação**,
+em vez de na etapa de Tratativa: é lá que está o trabalho, e mexer no resto não
+adianta enquanto não salvar. E a aba **Tratativas** lista, dentro do recorte que
+a pessoa está vendo, quais ainda faltam e o que falta em cada uma, com um clique
+para abrir e completar.
+
+**Processo repetido é checado antes.** Mandar completar treze campos para só
+então dizer que a tratativa não podia existir seria fazer a pessoa trabalhar à
+toa. Se o processo já tem tratativa, o sistema diz isso primeiro.
+
+**Fase, forma de contato e status ganharam a opção vazia.** Sem ela, um registro
+antigo com o campo em branco abria já mostrando a primeira opção da lista, e
+salvar gravava essa escolha que ninguém fez. O campo parecia preenchido, e a
+trava não teria o que travar.
+
+## Excluir uma tratativa
+
+Apagar tratativa não podia ser um `DELETE` e pronto, por dois motivos concretos.
+
+**O primeiro é dinheiro.** `acordo_recebimento.tratativa_id` é `ON DELETE SET
+NULL`. Um DELETE cru deixaria os lançamentos financeiros da tratativa soltos:
+sumiriam da tela de Financeiro, que junta com `tratativa`, e continuariam
+somando para sempre em `vw_verba_mes`, que não junta. Dinheiro contado sem dono
+e sem tela que chegue nele é o pior erro que esta base pode ter.
+
+**O segundo é registro.** Apagar sem rastro é perder histórico, e esta equipe já
+viu tratativa sumir sem saber por quê.
+
+Então a exclusão passa por uma porta só, a função `excluir_tratativa`: ela
+guarda uma cópia inteira da linha e dos filhos dela em `tratativa_excluida`,
+apaga os lançamentos junto e só então apaga a tratativa — tudo numa transação.
+`tratativa` deixou de ter política de DELETE: mesmo quem souber montar a
+chamada não consegue apagar por fora.
+
+**É do gestor.** Não por hierarquia: é que aqui apagar leva junto o dinheiro
+lançado. Quem não é gestor não vê o botão, e o banco recusa mesmo que veja — a
+permissão vive na função, não só na tela.
+
+**Um clique nunca apaga.** O botão abre uma confirmação que diz exatamente o
+que vai embora: o processo, as partes, o valor, quantos lançamentos financeiros
+(e quantos já baixados) e quantas linhas de discriminação. Tem campo de motivo,
+opcional, e fica gravado quem excluiu e quando.
+
+**A exclusão chega nas outras telas.** A atualização de 30 segundos só enxerga o
+que mudou por `updated_at`, e linha apagada não tem `updated_at` — a tratativa
+excluída ficaria na tela de todo mundo até alguém recarregar a página. A view
+`vw_tratativa_excluida` expõe só o id e a hora (não o conteúdo, que é do gestor)
+e é por ela que a remoção viaja. Se a gaveta estiver aberta justamente na que
+sumiu, ela fecha explicando o que houve, e o que a pessoa tinha digitado fica
+guardado no navegador.
+
+De quebra: um `403` do banco não é mais traduzido para "sua sessão expirou". O
+banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
+pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
+não dizer nada.
 
 ## Gravação que não pode se perder no meio
 

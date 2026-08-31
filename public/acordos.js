@@ -574,26 +574,43 @@ const COLUNAS = [
 ];
 
 /* Com a Identificação inteira obrigatória, quem abrir uma tratativa antiga para
-   mudar o status vai esbarrar no que falta nela. Melhor avisar antes: aqui
-   estão as que ainda não passam, dentro do recorte que a pessoa está vendo, com
-   um clique para abrir e completar. Só as que ainda podem andar — encerrada
-   ninguém vai reabrir para preencher tese de 2024. */
+   mudar o status vai esbarrar no que falta nela. Melhor avisar antes.
+
+   Mas são quatrocentas e poucas, e a lista aberta cobria a tela inteira todo
+   dia — pelo aviso de uma dívida que vai ser paga aos poucos, conforme cada
+   caso for mexido. Fica só a linha com o número, e a lista abre em quem quiser
+   olhar. A escolha fica guardada neste navegador: quem abriu continua vendo,
+   quem fechou não vê de novo a cada atualização de 30 segundos.
+
+   Só as que ainda podem andar — encerrada ninguém vai reabrir para preencher
+   tese de 2024. */
+const VER_FALTANTES = 'andon.faltantes_abertos';
+let faltantesAbertos = (() => {
+  try { return localStorage.getItem(VER_FALTANTES) === '1'; } catch (e) { return false; }
+})();
+
 function avisoIncompletas(l) {
   const furadas = l.filter(t => !finalizada(t) && buracosDe(t).length);
   if (!furadas.length) return '';
+  const n = furadas.length, um = n === 1;
   const nomes = t => buracosDe(t).map(b => b[1]).join(', ');
-  return `<div class="nota" style="margin:0 0 14px">
-    <b>${furadas.length}</b> tratativa${furadas.length === 1 ? '' : 's'} ainda em
-    andamento ${furadas.length === 1 ? 'está' : 'estão'} sem algum campo obrigatório.
-    ${furadas.length === 1 ? 'Ela' : 'Elas'} só ${furadas.length === 1 ? 'volta' : 'voltam'}
-    a salvar depois de completa${furadas.length === 1 ? '' : 's'} — clique para abrir e preencher:
-    <div style="margin-top:9px;display:flex;flex-direction:column;gap:5px">
+  return `<div class="nota linha-faltantes" style="margin:0 0 14px">
+    <div class="cab-faltantes">
+      <span><b>${n}</b> tratativa${um ? '' : 's'} ainda em andamento
+        ${um ? 'está' : 'estão'} sem algum campo obrigatório —
+        ${um ? 'ela só volta' : 'elas só voltam'} a salvar depois de
+        completa${um ? '' : 's'}.</span>
+      <button type="button" class="bt bt-mini" id="ver-faltantes">${
+        faltantesAbertos ? 'esconder lista' : 'ver lista'}</button>
+    </div>
+    ${faltantesAbertos ? `<div class="itens-faltantes">
       ${furadas.slice(0, 30).map(t => `<div class="pendente" role="button" tabindex="0" data-abrir="${t.id}">
         ${proc(t.processo)}
         <span class="nm">${esc((t.autor || 'sem autor').split(' ').slice(0, 3).join(' '))}</span>
         <b class="falta-lista">falta ${esc(nomes(t))}</b></div>`).join('')}
-    </div>
-    ${furadas.length > 30 ? `<div class="dica" style="margin:8px 0 0">Mostrando 30 de ${furadas.length}.</div>` : ''}
+      ${n > 30 ? `<div class="dica" style="margin:4px 0 0">Mostrando 30 de ${n}.
+        Use a busca e os filtros acima para chegar nas outras.</div>` : ''}
+    </div>` : ''}
   </div>`;
 }
 
@@ -628,6 +645,12 @@ function telaLista(l) {
       ord.length > 600 ? ` · mostrando 600 de ${ord.length}` : ''}</div>`;
 
   ligaOrd('lista', COLUNAS, () => { telaLista(l); ligaAbrir(); });
+  const vf = $('ver-faltantes');
+  if (vf) vf.onclick = () => {
+    faltantesAbertos = !faltantesAbertos;
+    try { localStorage.setItem(VER_FALTANTES, faltantesAbertos ? '1' : '0'); } catch (e) { }
+    telaLista(l); ligaAbrir();
+  };
 }
 
 /* Quanto tempo o escritório leva para encerrar uma tratativa, do primeiro

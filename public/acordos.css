@@ -259,3 +259,12 @@
    vez de empurrar o processo e o autor para fora do botão. */
 .pendente .falta-lista{flex:1.4;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;text-align:right;color:var(--warn);font-weight:500}
+
+/* O aviso fica em uma linha; a lista só aparece em quem pedir. São quatrocentas
+   e poucas, e aberta ela tomava a tela toda por uma dívida que vai ser paga aos
+   poucos, conforme cada caso for mexido. */
+.cab-faltantes{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.cab-faltantes > span{flex:1;min-width:220px}
+.cab-faltantes .bt-mini{flex-shrink:0}
+.itens-faltantes{margin-top:10px;display:flex;flex-direction:column;gap:5px;
+  max-height:340px;overflow-y:auto;overscroll-behavior:contain}

@@ -457,9 +457,15 @@ real, e é o preço de a base voltar a fechar.
 fazia — muda para a Identificação, marca em vermelho tudo o que está vazio e
 rola até o primeiro. Tratativa incompleta agora **abre direto na Identificação**,
 em vez de na etapa de Tratativa: é lá que está o trabalho, e mexer no resto não
-adianta enquanto não salvar. E a aba **Tratativas** lista, dentro do recorte que
-a pessoa está vendo, quais ainda faltam e o que falta em cada uma, com um clique
-para abrir e completar.
+adianta enquanto não salvar. E a aba **Tratativas** avisa quantas ainda faltam,
+com um botão **ver lista** que abre quais são e o que falta em cada uma, com um
+clique para abrir e completar.
+
+A lista nasce fechada de propósito. Aberta, ela ocupava a tela inteira todo dia
+— pelo aviso de uma dívida que vai ser paga aos poucos, conforme cada caso for
+mexido. Fica a linha com o número, e a lista abre em quem quiser olhar; a
+escolha fica guardada no navegador, então quem fechou não vê de novo a cada
+atualização de 30 segundos.
 
 **Processo repetido é checado antes.** Mandar completar treze campos para só
 então dizer que a tratativa não podia existir seria fazer a pessoa trabalhar à

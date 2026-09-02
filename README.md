@@ -517,6 +517,35 @@ banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
 pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
 não dizer nada.
 
+## A discriminação sumia ao salvar
+
+A discriminação mora em `acordo_verba`, não em `tratativa`. Então a linha que
+volta do banco depois de salvar **não traz as verbas** — e o código trocava o
+rascunho por ela com um `{...linha}` seco, em dois lugares. `rascunho.verbas`
+ficava indefinido, e o bloco aparecia vazio no instante seguinte ao "Tratativa
+salva.".
+
+O estrago ia além da tela. `leVerbasDaTela()` parte do rascunho, então a leitura
+seguinte devolvia lista vazia — e daí em diante o comportamento dependia do
+status:
+
+| status | o que acontecia |
+|---|---|
+| Acordo fechado | o salvamento seguinte era **recusado** por "acordo fechado precisa da discriminação", com o banco tendo as verbas o tempo todo |
+| Formalizando (as três) | a validação não exige discriminação ali, então a gravação seguinte **apagava do banco** a discriminação inteira, em silêncio |
+
+Agora a troca do rascunho passa por uma função só, `adotaLinha`: o que está na
+tela manda, e só quando não há nada na tela é que a discriminação vem do que já
+foi lido do banco. Depois de gravar as verbas, o rascunho passa a apontar para
+as linhas que existem agora, com os ids que o banco acabou de dar.
+
+**Não houve perda em produção.** Nove acordos com valor estão sem discriminação:
+sete `ACORDO FECHADO` — os mesmos sete de sempre, que vêm da base antiga e o
+Financeiro já lista — e dois em `AGUARDANDO PROTOCOLO`. Conferi os dois contra a
+base importada e contra os lançamentos do ADVBox: nunca tiveram verba. O caminho
+que apagava exigia abrir um acordo em formalização que já tivesse discriminação
+e salvar duas vezes, e não há sinal de que tenha acontecido.
+
 ## Gravação que não pode se perder no meio
 
 Duas correções do mesmo tipo, achadas ao varrer o resto do sistema:

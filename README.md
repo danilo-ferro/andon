@@ -113,10 +113,12 @@ takt, percentuais, ritmo. Ali ela está simulando, não medindo.
   base para conhecer, e R$ 44 mil são levantamentos `MLE - ACORDO`, que a
   trava anti-duplicidade exclui de propósito e o ADVBox lança como MLE.
   Sobram R$ 101 mil realmente sem explicação.
-- **Sete processos aparecem com o mesmo valor dos dois lados, sob números
-  diferentes.** Um deles é `1006491-32.2017…` contra `1006491.32.2017…` —
-  ponto no lugar do hífen. Não muda o total, mas é o tipo de coisa que
-  vira pagamento em duplicidade.
+- **Eram sete processos aparecendo com o mesmo valor dos dois lados, sob
+  números diferentes. Sobraram dois.** Cinco eram só pontuação — um deles,
+  `1006491-32.2017…` contra `1006491.32.2017…`, com ponto no lugar do hífen — e
+  se resolveram quando o número passou a ser gravado sempre na forma CNJ. Os
+  dois que restam são números de verdade diferentes. Não muda o total, mas é o
+  tipo de coisa que vira pagamento em duplicidade.
 
 ---
 
@@ -517,6 +519,47 @@ banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
 pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
 não dizer nada.
 
+## O caso que existia e não aparecia
+
+`4000482-26.2026.8.26.0176` não era achado pela busca. Mas ao começar uma
+tratativa nova com esse número, o sistema avisava que o processo **já estava no
+sistema** e oferecia abrir. O caso existia e não aparecia — o pior dos dois
+mundos.
+
+A causa: ele estava gravado como `4000482.26.2026.8.26.0176`, **com ponto no
+lugar do hífen**. A busca comparava texto cru; a trava de repetido compara só
+os dígitos. Os dois discordavam, e cada um estava certo à sua maneira.
+
+A correção tem três partes:
+
+**A busca passou a comparar por dígito também.** É a metade que resolve para
+sempre, independente de como o número foi digitado ou gravado: hífen, ponto,
+espaço, ou sem pontuação nenhuma. Quatro dígitos é o mínimo, senão procurar
+"26" viraria uma busca que casa com meia base.
+
+**O que estava gravado virou a forma canônica.** Sete registros estavam fora do
+formato CNJ, em três formas:
+
+| forma | quantos | exemplo |
+|---|---:|---|
+| ponto no lugar do hífen | 2 | `4000482.26.2026.8.26.0176` |
+| espaço sobrando no meio | 2 | `4006350 -22.2026.8.26.0002` |
+| dois processos na mesma célula | 3 | `1007722-91.2025.8.26.0002 0010435-22.2026.8.26.0002` |
+
+Os quatro primeiros foram normalizados: os dígitos não mudam, só a pontuação
+entra no lugar, então o índice único por `chave_processo` não tem como colidir.
+Um deles é justamente o `1006491.32.2017…` que já aparecia na conciliação com o
+ADVBox como par divergente.
+
+**E não volta a acontecer.** `formata_processo()` vive no gatilho de gravação da
+tratativa, que é por onde passam a tela, a carga de `/dados` e a Edge Function.
+A mesma regra entrou no extrator e nos `.psv`.
+
+Os **três com dois processos na mesma célula** ficaram como estão: escolher qual
+dos dois é o processo da tratativa é decisão de quem conhece o caso, não do
+sistema. Eles têm 40 dígitos, então a trava de repetido nunca os enxerga — mas
+a busca agora acha por qualquer um dos dois números.
+
 ## A gaveta fecha por decisão, nunca por acidente
 
 Clicar fora da gaveta fechava. No meio de uma tratativa longa — com o acordo já
@@ -678,14 +721,23 @@ significado não dependia dele.
    vazamento conhecido.
 2. Carregar os acordos trabalhistas. É a maior parcela isolada da divergência
    com o ADVBox — R$ 82 mil — e é inteira por falta de base, não por erro.
-3. Acertar os sete pares de processo com número divergente. A tela de
-   Financeiro lista todos, lado a lado.
-4. Dizer quem é o réu das seis tratativas que ainda estão sem ele —
+3. Acertar os dois pares de processo com número divergente que sobraram — eram
+   sete, e cinco eram só pontuação, resolvidos pela normalização para a forma
+   CNJ. Os dois que restam são números de verdade diferentes, um de cada lado:
+   `0001423-27.2026.8.26.0020` × `1011860-18.2023.8.26.0020` e
+   `1019920-66.2025.8.26.0001` × `0002448-35.2026.8.26.0001`. A tela de
+   Financeiro mostra os dois lado a lado.
+4. Dizer qual é o processo das três tratativas que têm dois números na mesma
+   célula — `1007722-91.2025.8.26.0002 0010435-22.2026.8.26.0002` (Tatiane
+   Aparecida), `1012587-40.2024.8.26.0020 0001552-32.2026.8.26.0020` (Nilson
+   Rosa) e `1199239-22.2024.8.26.0100 0017709-34.2026.8.26.0100` (Marcelly
+   Karoline). Com 40 dígitos, a trava de processo repetido nunca os enxerga.
+5. Dizer quem é o réu das seis tratativas que ainda estão sem ele —
    `0001623-82.2026.8.26.0198`, `0002178-96.2026.8.26.0005`,
    `0003955-80.2026.8.26.0405`, `0004807-48.2026.8.26.0068`,
    `1002155-82.2025.8.26.0001` e `1034655-35.2024.8.26.0003`. São as últimas
    travadas por campo obrigatório vazio, e é o único dado que falta nelas.
-5. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
+6. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
    é o único número que falta para o repasse calcular sozinho.
-6. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
+7. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
    assim que houver histórico de expedição e recebimento no mesmo lugar.

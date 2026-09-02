@@ -35,6 +35,19 @@ def txt(v):
     # linha inteira. O histórico de OBS usa " | " o tempo todo.
     return s.replace('|', '/').replace('\n', ' ').replace('\r', ' ')
 
+# O número do processo sai daqui sempre na forma CNJ. Na planilha ele aparece
+# com ponto no lugar do hífen, com espaço sobrando no meio, e às vezes sem
+# pontuação nenhuma — e aí a busca da tela, que compara texto, não achava um
+# caso que existe. Só mexe no que tem exatamente os 20 dígitos do CNJ: número
+# com outra quantidade é outra coisa, e formatar por conta própria seria
+# inventar. A mesma regra vive no banco, em formata_processo().
+def processo(v):
+    s = txt(v)
+    d = re.sub(r'[^0-9]', '', s)
+    if len(d) != 20:
+        return s
+    return f'{d[:7]}-{d[7:9]}.{d[9:13]}.{d[13]}.{d[14:16]}.{d[16:20]}'
+
 def data(v):
     if v is None or v == '':
         return ''
@@ -180,10 +193,13 @@ ACORDO_POR_ID = {str(r['ID_ACORDO']).strip(): r for r in ACORDOS}
 # Dois sinais dizem que o processo é trabalhista, e no que já está carregado
 # eles concordam nos 13 casos: a coluna TIPO e o dígito do ramo da Justiça no
 # número CNJ (posição 14 igual a 5 = Justiça do Trabalho). Basta um.
-def e_trabalhista(tipo, processo):
+# O parâmetro se chama `num` e não `processo` de propósito: `processo` já é o
+# nome da função que formata o número, e sombreá-la aqui dentro seria uma
+# armadilha para quem mexer nisto depois.
+def e_trabalhista(tipo, num):
     if txt(tipo).upper() == 'TRABALHISTA':
         return True
-    d = re.sub(r'[^0-9]', '', txt(processo))
+    d = re.sub(r'[^0-9]', '', txt(num))
     return len(d) == 20 and d[13] == '5'
 
 
@@ -223,7 +239,7 @@ def linha_tratativa(r, idac, acordo, principal=True):
         de_lista(r.get('FASE'), FASE, None, 'fase'),
         txt(r.get('ESTADO')).upper()[:2],
         adv,
-        txt(r.get('PROCESSO')),
+        processo(r.get('PROCESSO')),
         txt(r.get('AUTOR')),
         txt(r.get('RÉU')),
         txt(r.get('ESCRITÓRIO (ADV. RÉU)')),
@@ -355,7 +371,7 @@ for r in DESMEMBR:
     if v not in VERBAS:
         alertas['verba_fora_da_lista:' + v] += 1
     linhas_verba.append([
-        txt(r['ID_ACORDO']), txt(r['PROCESSO']), v, txt(r['DETALHE DA VERBA']),
+        txt(r['ID_ACORDO']), processo(r['PROCESSO']), v, txt(r['DETALHE DA VERBA']),
         inteiro(r['QTD LANÇAMENTOS']), numero(r['VALOR PAGO']),
         numero(r['VALOR EM ABERTO']), numero(r['VALOR TOTAL']),
     ])
@@ -370,7 +386,7 @@ for r in RECEB:
     if s not in SITUACAO:
         alertas['situacao_fora_da_lista:' + s] += 1
     linhas_receb.append([
-        txt(r['ID_ACORDO']), txt(r['PROCESSO']), txt(r['CATEGORIA ADVBOX']),
+        txt(r['ID_ACORDO']), processo(r['PROCESSO']), txt(r['CATEGORIA ADVBOX']),
         de_lista(r.get('TIPO'), None, TIPO, 'tipo_receb'),
         de_lista(r.get('FASE'), FASE, None, 'fase_receb'),
         txt(r['VERBA']).upper(), txt(r['DETALHE DA VERBA']),

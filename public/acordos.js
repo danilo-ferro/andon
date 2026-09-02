@@ -287,6 +287,19 @@ const jaExiste = (processo, exceto) => {
   return TRAT.find(t => chaveProcesso(t.processo) === k && t.id !== exceto) || null;
 };
 
+/* Procurar por número de processo tem que achar o caso, não a pontuação com que
+   ele foi digitado. `4000482-26.2026.8.26.0176` estava gravado com ponto no
+   lugar do hífen: a busca comparava texto e não achava nada, enquanto a trava
+   de repetido — que compara só dígito — acusava que o processo já existia. O
+   caso existia e não aparecia, que é o pior dos dois mundos.
+
+   Quatro dígitos é o mínimo para procurar assim: sem isso, digitar "26" viraria
+   uma busca que casa com meia base. */
+const achaPorDigito = t => {
+  const d = chaveProcesso(busca);
+  return d.length >= 4 && chaveProcesso(t.processo).includes(d);
+};
+
 /* ---------- filtros ---------- */
 function filtradas() {
   const b = busca.trim().toLowerCase();
@@ -312,7 +325,7 @@ function filtradas() {
     if (b) {
       const alvo = [t.processo, t.autor, t.reu, t.escritorio_adverso, t.advogado,
                     t.operador, t.observacoes].join(' ').toLowerCase();
-      if (!alvo.includes(b)) return false;
+      if (!alvo.includes(b) && !achaPorDigito(t)) return false;
     }
     return true;
   });

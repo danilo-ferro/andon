@@ -42,6 +42,28 @@ create or replace function chave_processo(p text) returns text
   select nullif(regexp_replace(coalesce(p, ''), '[^0-9]', '', 'g'), '')
 $$;
 
+-- O numero do processo, sempre na forma CNJ.
+--
+-- A busca da tela compara texto; a trava de processo repetido compara so os
+-- digitos. Quando o numero entrou com a pontuacao errada — ponto no lugar do
+-- hifen, espaco sobrando —, os dois discordavam: procurar
+-- "4000482-26.2026.8.26.0176" nao achava nada, e digitar o mesmo numero numa
+-- tratativa nova acusava que ele ja existia. O caso existia e nao aparecia.
+--
+-- So mexe no que tem exatamente os 20 digitos do CNJ. Numero com outra
+-- quantidade e outra coisa — dois processos na mesma celula, por exemplo — e
+-- formatar por conta propria seria inventar.
+create or replace function formata_processo(p text) returns text
+  language sql immutable set search_path to 'public','pg_temp' as $$
+  select case
+    when length(chave_processo(p)) = 20 then
+      regexp_replace(chave_processo(p),
+        '^([0-9]{7})([0-9]{2})([0-9]{4})([0-9])([0-9]{2})([0-9]{4})$',
+        '\1-\2.\3.\4.\5.\6')
+    else nullif(btrim(coalesce(p, '')), '')
+  end
+$$;
+
 -- =====================================================================
 -- 1. EXECUCAO — espelha o MAPA EXECUCAO. Cada linha e um VALOR, nao um
 --    processo: o mesmo processo pode ter parte levantada e um saldo
@@ -665,6 +687,9 @@ $$;
 create or replace function ao_salvar_tratativa() returns trigger
   language plpgsql set search_path to 'public','pg_temp' as $$
 begin
+  -- Todo numero que entra por qualquer porta — a tela, a carga de /dados, a
+  -- Edge Function — sai formatado daqui. E o unico lugar por onde todos passam.
+  new.processo := formata_processo(new.processo);
   if not new.previsao_manual then
     new.previsao := previsao_recebimento(new.data_protocolo, new.prazo_dias,
                                          new.tipo_prazo, new.estado);

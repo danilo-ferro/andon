@@ -1511,6 +1511,26 @@ function telaPainel(l) {
    ================================================================== */
 let rascunho = null, etapa = 1;
 
+/* A discriminação mora em `acordo_verba`, não em `tratativa`. Então a linha que
+   volta do banco depois de salvar NÃO traz as verbas — e trocar o rascunho por
+   ela com um `{...linha}` seco deixava `rascunho.verbas` indefinido. O bloco da
+   discriminação aparecia vazio no instante seguinte ao "Tratativa salva.", e
+   pior: `leVerbasDaTela()` parte do rascunho, então a leitura seguinte da tela
+   devolvia lista vazia. Dali para a frente ou o salvamento era recusado por
+   "acordo fechado precisa da discriminação", com o banco tendo as verbas o
+   tempo todo, ou — em status que não exige — a gravação seguinte apagava do
+   banco a discriminação inteira.
+
+   Trocar o rascunho é sempre por aqui: o que está na tela manda, e só quando
+   não há nada na tela é que a discriminação vem do que já foi lido do banco. */
+const verbasDoRascunho = id => verbasDe(id).map(v =>
+  ({ id: v.id, verba: v.verba, detalhe: v.detalhe || '', valor_total: +v.valor_total || 0 }));
+
+function adotaLinha(linha) {
+  const naTela = rascunho && rascunho.verbas;
+  rascunho = { ...linha, verbas: naTela || verbasDoRascunho(linha.id) };
+}
+
 /* Campo nao preenchido nasce null, nao string vazia. O banco recusa '' em
    coluna de data, e quem salva na etapa 1 ou 2 nunca chega a tocar nos
    campos do faturamento — eles iriam vazios do mesmo jeito. */
@@ -1558,10 +1578,7 @@ function abreForm(t) {
   // acompanha o rascunho guardado e repetir o salvamento nunca duplica.
   if (!rascunho.id && !rascunho.chave_cliente) rascunho.chave_cliente = ANDON_REDE.chaveNova();
   // A discriminação do acordo é editada aqui dentro, então vem junto.
-  rascunho.verbas = t && t.id
-    ? verbasDe(t.id).map(v => ({ id: v.id, verba: v.verba, detalhe: v.detalhe || '',
-                                 valor_total: +v.valor_total || 0 }))
-    : [];
+  rascunho.verbas = t && t.id ? verbasDoRascunho(t.id) : [];
   /* A tela abre onde o trabalho está. Tratativa nova começa na identificação;
      tratativa em andamento abre direto na etapa 2, que é onde a operadora mexe;
      acordo já fechado abre no faturamento, que é o que falta preencher.
@@ -2466,7 +2483,7 @@ async function salvar() {
      tratativa que estava salva. */
   const i = TRAT.findIndex(t => t.id === gravada.id);
   if (i >= 0) TRAT[i] = gravada; else TRAT.push(gravada);
-  rascunho = { ...gravada };
+  adotaLinha(gravada);
   marcaSincronia();   // a nossa própria gravação já está vista
   pintaForm();        // redesenha a gaveta, e com ela o espaço do recado
   desenha();
@@ -2533,6 +2550,10 @@ async function gravaVerbas(id, linhas) {
     await api(`acordo_verba?id=in.(${antes.map(a => a.id).join(',')})`, { method: 'DELETE' });
 
   VERBAS = VERBAS.filter(v => v.tratativa_id !== +id).concat(novas);
+  /* A gaveta continua aberta depois de salvar. O que ela mostra passa a ser as
+     linhas que existem agora, com os ids que o banco acabou de dar — senão o
+     rascunho seguiria apontando para linhas que já foram apagadas. */
+  if (rascunho && rascunho.id === +id) rascunho.verbas = verbasDoRascunho(+id);
   desenha();
 }
 
@@ -2548,7 +2569,7 @@ async function releParcelas(id) {
   if (nova) {
     const i = TRAT.findIndex(t => t.id === nova.id);
     if (i >= 0) TRAT[i] = nova;
-    if (rascunho && rascunho.id === nova.id) { rascunho = { ...nova }; pintaForm(); }
+    if (rascunho && rascunho.id === nova.id) { adotaLinha(nova); pintaForm(); }
   }
   desenha();
 }

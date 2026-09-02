@@ -2759,9 +2759,34 @@ function ligaAbrir() {
 }
 
 $('q').addEventListener('input', e => { busca = e.target.value; desenha(); });
+/* A gaveta fecha por decisão, nunca por acidente. Clicar no véu fechava, e um
+   clique fora da gaveta — no meio de uma tratativa longa, com o acordo já
+   discriminado — levava tudo junto sem perguntar nada. O Esc saiu pelo mesmo
+   motivo, e por um caminho ainda mais traiçoeiro: é a tecla com que se fecha o
+   calendário de um campo de data, e ela vazava para cá.
+
+   Ficam as duas saídas que a pessoa escolhe de propósito: Cancelar e o ×.
+
+   O véu continua ouvindo o clique, mas só para responder: sem isso, quem
+   clicasse fora não veria nada acontecer e concluiria que a tela travou. */
 $('fx').onclick = fechaGaveta;
-$('veu').onclick = fechaGaveta;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') fechaGaveta(); });
+$('veu').onclick = () => {
+  const g = $('gav');
+  if (!g.classList.contains('on')) return;
+  g.classList.remove('chamando');
+  void g.offsetWidth;            // reinicia a animação se clicarem duas vezes
+  g.classList.add('chamando');
+  setTimeout(() => g.classList.remove('chamando'), 500);
+  // Não escreve por cima de "Tratativa salva." nem de um erro que ela precisa ler.
+  const r = $('recado');
+  if (!r || r.innerHTML.trim()) return;
+  alerta('A tratativa fica aberta até você fechar: use Cancelar ou o × ali em cima.', 'info');
+  // E some sozinho, se ninguém tiver posto outra coisa no lugar. Recado que
+  // fica para sempre no rodapé vira ruído em cima do próximo, que importa.
+  const meu = r.innerHTML;
+  setTimeout(() => { const x = $('recado');
+    if (x && x.innerHTML === meu) x.innerHTML = ''; }, 5000);
+};
 
 /* Falhar ao carregar não pode ser um beco sem saída com texto em inglês:
    quase sempre é rede, e quase sempre a segunda tentativa passa. */

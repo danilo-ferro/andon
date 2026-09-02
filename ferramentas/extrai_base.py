@@ -41,10 +41,17 @@ def txt(v):
 # caso que existe. Só mexe no que tem exatamente os 20 dígitos do CNJ: número
 # com outra quantidade é outra coisa, e formatar por conta própria seria
 # inventar. A mesma regra vive no banco, em formata_processo().
+#
+# Número que não fecha 20 dígitos passa intacto e vira alerta no relatório do
+# fim. Três linhas chegaram com DOIS processos na mesma célula (40 dígitos) e
+# ficaram invisíveis para a trava de processo repetido, que compara a chave
+# inteira. Escolher qual dos dois vale não é do extrator — mas avisar é.
 def processo(v):
     s = txt(v)
     d = re.sub(r'[^0-9]', '', s)
     if len(d) != 20:
+        if s:
+            alertas[f'processo_fora_do_padrao_cnj({len(d)} dígitos):{s[:48]}'] += 1
         return s
     return f'{d[:7]}-{d[7:9]}.{d[9:13]}.{d[13]}.{d[14:16]}.{d[16:20]}'
 

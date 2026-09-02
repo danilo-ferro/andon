@@ -555,10 +555,27 @@ ADVBox como par divergente.
 tratativa, que é por onde passam a tela, a carga de `/dados` e a Edge Function.
 A mesma regra entrou no extrator e nos `.psv`.
 
-Os **três com dois processos na mesma célula** ficaram como estão: escolher qual
-dos dois é o processo da tratativa é decisão de quem conhece o caso, não do
-sistema. Eles têm 40 dígitos, então a trava de repetido nunca os enxerga — mas
-a busca agora acha por qualquer um dos dois números.
+Os **três com dois processos na mesma célula** eram os únicos que o sistema não
+podia resolver sozinho: com 40 dígitos, a trava de repetido nem os enxergava, e
+escolher qual dos dois vale é de quem conhece o caso. O Danilo disse — **fica o
+que começa com "0"**, que nos três é o segundo:
+
+| autor | ficou | saiu da coluna |
+|---|---|---|
+| Tatiane Aparecida | `0010435-22.2026.8.26.0002` | `1007722-91.2025.8.26.0002` |
+| Nilson Rosa | `0001552-32.2026.8.26.0020` | `1012587-40.2024.8.26.0020` |
+| Marcelly Karoline | `0017709-34.2026.8.26.0100` | `1199239-22.2024.8.26.0100` |
+
+O número que saiu não se perdeu: foi para as observações da própria tratativa.
+Ele é dado — o processo anterior do mesmo caso — e apagar dado sem deixar rastro
+é exatamente o que este sistema não faz.
+
+Com isso, **as 1.943 tratativas estão no formato CNJ**, e todas passam pela trava
+de processo repetido.
+
+E o extrator ganhou uma rede: número que não fecha 20 dígitos passa intacto e
+vira alerta no relatório do fim. Escolher qual dos dois vale não é do extrator —
+mas avisar é.
 
 ## A gaveta fecha por decisão, nunca por acidente
 
@@ -727,17 +744,12 @@ significado não dependia dele.
    `0001423-27.2026.8.26.0020` × `1011860-18.2023.8.26.0020` e
    `1019920-66.2025.8.26.0001` × `0002448-35.2026.8.26.0001`. A tela de
    Financeiro mostra os dois lado a lado.
-4. Dizer qual é o processo das três tratativas que têm dois números na mesma
-   célula — `1007722-91.2025.8.26.0002 0010435-22.2026.8.26.0002` (Tatiane
-   Aparecida), `1012587-40.2024.8.26.0020 0001552-32.2026.8.26.0020` (Nilson
-   Rosa) e `1199239-22.2024.8.26.0100 0017709-34.2026.8.26.0100` (Marcelly
-   Karoline). Com 40 dígitos, a trava de processo repetido nunca os enxerga.
-5. Dizer quem é o réu das seis tratativas que ainda estão sem ele —
+4. Dizer quem é o réu das seis tratativas que ainda estão sem ele —
    `0001623-82.2026.8.26.0198`, `0002178-96.2026.8.26.0005`,
    `0003955-80.2026.8.26.0405`, `0004807-48.2026.8.26.0068`,
    `1002155-82.2025.8.26.0001` e `1034655-35.2024.8.26.0003`. São as últimas
    travadas por campo obrigatório vazio, e é o único dado que falta nelas.
-6. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
+5. Cadastrar o piso da tabela OAB de 2026 (`config_parametro.piso_oab_2026`) —
    é o único número que falta para o repasse calcular sozinho.
-7. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
+6. Trocar os prazos estimados do funil (70 / 38 / 11 dias) pela mediana real,
    assim que houver histórico de expedição e recebimento no mesmo lugar.

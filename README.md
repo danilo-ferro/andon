@@ -517,6 +517,30 @@ banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
 pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
 não dizer nada.
 
+## A gaveta fecha por decisão, nunca por acidente
+
+Clicar fora da gaveta fechava. No meio de uma tratativa longa — com o acordo já
+discriminado, verba por verba — um clique errado levava tudo junto sem perguntar
+nada.
+
+O `Esc` saiu pelo mesmo motivo, e por um caminho ainda mais traiçoeiro: é a
+tecla com que se fecha o calendário de um campo de data, e ela vazava para a
+gaveta. Quem apertava `Esc` para sair do seletor de data perdia o formulário
+inteiro.
+
+Ficam as duas saídas que a pessoa escolhe de propósito: **Cancelar** e o **×**.
+
+O véu continua ouvindo o clique, mas só para responder: a gaveta dá um aceno
+curto, acende a borda e diz onde estão as saídas. Sem isso, quem clicasse fora
+não veria nada acontecer e concluiria que a tela travou. O recado some sozinho
+em cinco segundos e nunca escreve por cima de um "Tratativa salva." ou de um
+erro que ainda precisa ser lido.
+
+Fica registrado o que **não** mudou: `Cancelar` e o `×` continuam fechando sem
+perguntar, e o rascunho de resgate só existe para tratativa nova — a que ainda
+não chegou ao banco. Editar uma tratativa que já existe e fechar pelo `×` perde
+a edição, como sempre perdeu.
+
 ## A discriminação sumia ao salvar
 
 A discriminação mora em `acordo_verba`, não em `tratativa`. Então a linha que

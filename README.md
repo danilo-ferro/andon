@@ -45,6 +45,11 @@ supabase/
 ferramentas/
   extrai_base.py   transforma a planilha consolidada nos .psv de /dados
 
+testes/            testes de navegador, sem framework — ver testes/LEIA.md
+  base.mjs         o Supabase de mentira e a sessão
+  fumaca.mjs       varredura larga: as telas abrem e o essencial funciona
+  sem-data.mjs     registro sem data não entra em recorte por período
+
 dados/             fonte da verdade dos dados, delimitado por |
   execucao.psv           946 valores em execução
   tratativa.psv          1.848 tratativas de acordo (um processo, uma linha)
@@ -518,6 +523,36 @@ De quebra: um `403` do banco não é mais traduzido para "sua sessão expirou". 
 banco diz o motivo — "só um gestor pode excluir uma tratativa" — e mandar a
 pessoa sair e entrar de novo para descobrir que continua sem poder é pior do que
 não dizer nada.
+
+## O gatilho que inventava data
+
+Seis acordos entraram em **setembro de 2026** com **R$ 40.399,68**, num mês que
+de verdade tem dois acordos e R$ 3.000. Na tela eles apareciam com quase tudo
+vazio: sem réu, sem UF, sem operador e — o que denuncia — **sem data**.
+
+A culpa era do gatilho de gravação. Quando um `ACORDO FECHADO` chegava sem
+`data_atualizacao`, ele preenchia com
+`coalesce(protocolo, minuta, data, CURRENT_DATE)`. O último termo era o
+problema: numa linha que não tem data nenhuma — nem 1ª tentativa, nem minuta,
+nem protocolo —, ele carimbava **o dia da carga**. E como o recorte por período
+usa a última atualização, esses seis pulavam para o mês da recarga a cada push.
+Eram registros antigos, sem data alguma na planilha de origem, sendo contados
+como fechamentos do mês.
+
+`CURRENT_DATE` saiu. Registro sem data não pertence a mês nenhum, e dizer que
+pertence é inventar. Agora a `data_atualizacao` fica nula.
+
+**Mas nulo não pode virar invisível.** Sem data, esses seis somem de todo
+recorte por período — R$ 40 mil que ninguém encontraria. Então o aviso da aba
+Tratativas passou a contá-los, mesmo encerrados, dizendo quantos são e que não
+aparecem em filtro de período nenhum. Uma fechada antiga a que só falta o
+produto continua fora do aviso: ninguém vai reabri-la, e ela aparece no mês
+dela.
+
+O outro `CURRENT_DATE` do sistema — o que carimba `data_pagamento` quando
+alguém marca "Recebido? Sim" — ficou. Ali é uma pessoa dizendo "recebi", agora,
+e "hoje" é a melhor aproximação que existe. Conferido: zero lançamentos pagos
+sem vencimento, então esse caminho nunca chegou a inventar nada.
 
 ## O caso que existia e não aparecia
 

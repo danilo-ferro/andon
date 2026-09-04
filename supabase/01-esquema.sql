@@ -694,9 +694,21 @@ begin
     new.previsao := previsao_recebimento(new.data_protocolo, new.prazo_dias,
                                          new.tipo_prazo, new.estado);
   end if;
+  -- Sem CURRENT_DATE aqui: a data sai de uma data que existe, ou nao sai.
+  --
+  -- Com CURRENT_DATE, uma linha que nao tem data nenhuma — nem 1a tentativa,
+  -- nem minuta, nem protocolo — recebia o dia da carga. E como o filtro por
+  -- periodo usa a ultima atualizacao, seis acordos antigos entraram em
+  -- "setembro de 2026" com R$ 40.399,68, num mes que de verdade tem dois
+  -- acordos e R$ 3.000. A cada recarga da base eles pulavam para o mes da
+  -- recarga.
+  --
+  -- Registro sem data nao pertence a mes nenhum, e dizer que pertence e
+  -- inventar. Fica nulo, sai de todo recorte por periodo, e a tela avisa que
+  -- ele existe e esta sem data.
   if new.status = 'ACORDO FECHADO' and new.data_atualizacao is null then
     new.data_atualizacao := coalesce(new.data_protocolo, new.data_minuta_assinada,
-                                     new.data, current_date);
+                                     new.data);
   end if;
   return new;
 end $$;

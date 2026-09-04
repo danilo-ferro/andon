@@ -595,24 +595,33 @@ const COLUNAS = [
    olhar. A escolha fica guardada neste navegador: quem abriu continua vendo,
    quem fechou não vê de novo a cada atualização de 30 segundos.
 
-   Só as que ainda podem andar — encerrada ninguém vai reabrir para preencher
-   tese de 2024. */
+   Entram duas famílias. As que ainda podem andar, porque não vão salvar
+   enquanto estiverem incompletas. E as que estão sem data nenhuma — mesmo
+   encerradas —, porque sem data elas somem de todo recorte por período: não
+   aparecem em mês nenhum, e ninguém iria procurá-las. Uma fechada antiga a que
+   só falta o produto não entra: ninguém vai reabrir para preencher tese de
+   2024, e ela continua aparecendo no mês dela. */
 const VER_FALTANTES = 'andon.faltantes_abertos';
 let faltantesAbertos = (() => {
   try { return localStorage.getItem(VER_FALTANTES) === '1'; } catch (e) { return false; }
 })();
 
+const semData = t => !dataDoPeriodo(t);
+
 function avisoIncompletas(l) {
-  const furadas = l.filter(t => !finalizada(t) && buracosDe(t).length);
+  const furadas = l.filter(t => buracosDe(t).length && (!finalizada(t) || semData(t)));
   if (!furadas.length) return '';
   const n = furadas.length, um = n === 1;
+  const sd = furadas.filter(semData).length;
   const nomes = t => buracosDe(t).map(b => b[1]).join(', ');
   return `<div class="nota linha-faltantes" style="margin:0 0 14px">
     <div class="cab-faltantes">
-      <span><b>${n}</b> tratativa${um ? '' : 's'} ainda em andamento
-        ${um ? 'está' : 'estão'} sem algum campo obrigatório —
-        ${um ? 'ela só volta' : 'elas só voltam'} a salvar depois de
-        completa${um ? '' : 's'}.</span>
+      <span><b>${n}</b> tratativa${um ? '' : 's'} ${um ? 'está' : 'estão'} sem
+        algum campo obrigatório — ${um ? 'ela só volta' : 'elas só voltam'} a
+        salvar depois de completa${um ? '' : 's'}.${sd ? ` <b>${sd}</b> ${
+        sd === 1 ? 'está sem data nenhuma e não aparece'
+                 : 'estão sem data nenhuma e não aparecem'} em nenhum filtro
+        por período.` : ''}</span>
       <button type="button" class="bt bt-mini" id="ver-faltantes">${
         faltantesAbertos ? 'esconder lista' : 'ver lista'}</button>
     </div>
